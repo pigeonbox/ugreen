@@ -1,0 +1,4 @@
+dist/
+*.spk
+*.qpkg
+*.tgz

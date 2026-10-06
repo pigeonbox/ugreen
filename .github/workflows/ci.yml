@@ -1,0 +1,43 @@
+name: CI
+# 推送/PR:compose 双模板校验 + UPK 骨架 lint + 部署包 zip 组装断言
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose 模板校验(原版 + ghcr 加速版 + UPK 内嵌版)
+        run: |
+          docker compose -f deploy/compose.yml config -q
+          docker compose -f deploy/compose.ghcr-mirror.yml config -q
+          # UPK 内嵌版是参数化模板,以哑变量解析(config -q 只验语法)
+          DATA_PATH=/tmp/data FCB_API_PORT=12345 TZ=Asia/Shanghai \
+            docker compose -f upk/rootfs_common/docker-compose.yaml config -q
+      - name: 加速版仅替换镜像源域名
+        run: |
+          diff <(sed 's|ghcr\.io/|ghcr.nju.edu.cn/|g' deploy/compose.yml) deploy/compose.ghcr-mirror.yml
+      - name: project.yaml 可解析
+        run: python3 -c "import yaml,sys;yaml.safe_load(open('upk/project.yaml'))"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 组装部署包 zip(CI 版本 0.0.0)
+        run: ./scripts/build-zip.sh 0.0.0
+      - name: 结构断言
+        run: |
+          unzip -l dist/filescodebox-ugreen-0.0.0.zip | grep -q compose.yml
+          unzip -l dist/filescodebox-ugreen-0.0.0.zip | grep -q compose.ghcr-mirror.yml
+          unzip -l dist/filescodebox-ugreen-0.0.0.zip | grep -q env.example
+          unzip -l dist/filescodebox-ugreen-0.0.0.zip | grep -q 安装指引.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-kit
+          path: dist/*.zip
+          retention-days: 14
+          if-no-files-found: error

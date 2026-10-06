@@ -1,0 +1,50 @@
+# ⚠️ 二期骨架(未经验证):绿联 UPK 应用包定义。
+# 字段以官方 developer.ugnas.com 文档与 `ugcli check` 输出为准;上架需邮件送审,
+# sideload 需设备开发者授权(ugdev.sig),流程见本目录 README.md。
+# CI 出包参考 KOLFlow 的 build-ugreen-upk.yml(官方 ugcli 打包,镜像 tar 内嵌)。
+spec_version: "2.2"
+app_id: com.filescodebox.app
+version: 0.1.0
+support_arch: [amd64, arm64]
+# Docker 应用:自动生成对 com.ugreen.docker 套件的 MustDepend 强依赖
+is_docker_app: true
+depend_docker_version: "1.7.0.0000"
+depend_fw_version: "1.13.0.0000"
+# 应用打开端口(对外网页端口;桌面"打开"按钮指向 http://<ip>:<port>)
+port: 12345
+open_type: tab
+tag_types: [utility]
+only_admin: false
+# 安装向导可配置项(注入 compose 变量;仅允许已声明 key 与内置 ${TZ})
+parameters:
+  - key: DATA_PATH
+    type: path
+    required: true
+    default_value: /volume1/docker/filescodebox/data
+    desc:
+      zh-CN: 数据目录(SQLite 库+上传文件+JWT 密钥,备份它=备份全部)
+      en-US: Data directory (SQLite DB + uploads + JWT secret; back it up = back up everything)
+  - key: FCB_API_PORT
+    type: number
+    required: true
+    default_value: 12345
+    desc:
+      zh-CN: 对外端口(1024-65535)
+      en-US: Public port (1024-65535)
+  - key: FCB_ADMIN_PASSWORD
+    type: password
+    required: false
+    desc:
+      zh-CN: 管理员密码(留空=默认 admin123,装完请立即修改)
+      en-US: Admin password (blank = default admin123, change it after install)
+i18n:
+  zh-CN:
+    name: FilesCodeBox 文件快递柜
+    description: 匿名口令分享文本与文件:寄件生成口令,对方凭口令取件,到期自动销毁
+    author: FilesCodeBox
+  en-US:
+    name: FilesCodeBox
+    description: Anonymous passcode sharing for text & files
+    author: FilesCodeBox
+license_agreement_link: ["https://github.com/filescodebox/filescodebox/blob/main/LICENSE"]
+source_code_link: ["https://github.com/filescodebox/filescodebox"]
