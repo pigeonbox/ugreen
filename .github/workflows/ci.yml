@@ -22,6 +22,12 @@ jobs:
           diff <(sed 's|ghcr\.io/|ghcr.nju.edu.cn/|g' deploy/compose.yml) deploy/compose.ghcr-mirror.yml
       - name: project.yaml 可解析
         run: python3 -c "import yaml,sys;yaml.safe_load(open('upk/project.yaml'))"
+      - name: 共享资产与 hub 模板对齐(漂移门禁)
+        # 模板真相源=hub 仓 deploy/nas/;模板一动未同步的仓全部变红
+        run: |
+          curl -fsSL --retry 3 --connect-timeout 15 \
+            https://raw.githubusercontent.com/filescodebox/filescodebox/main/deploy/nas/sync.sh -o /tmp/nas-sync.sh
+          bash /tmp/nas-sync.sh check --platform ugreen --dir .
 
   build:
     runs-on: ubuntu-latest
