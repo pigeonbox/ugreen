@@ -18,7 +18,7 @@ ghcr,天然规避国内网络问题,是体验上限形态。
 
 ## 待办(二期启动时)
 
-1. `ugcli create com.filescodebox.app` 生成正规骨架,与本目录字段对齐后 `ugcli check` 校验
+1. `ugcli create com.pigeonbox.app` 生成正规骨架,与本目录字段对齐后 `ugcli check` 校验
    (当前 project.yaml/docker-compose.yaml 未经校验,字段以官方文档为准)
 2. CI:多架构 `docker pull --platform` → `docker save` 进 `rootfs_<arch>/images/` →
    `ugcli pack --arch all` → Release 产物 `*.upk` + `SHA256SUMS-UPK`

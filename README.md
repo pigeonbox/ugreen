@@ -1,10 +1,10 @@
-# FilesCodeBox UGREEN UGOS Pro
+# PigeonBox UGREEN UGOS Pro
 
-[![CI](https://github.com/filescodebox/ugreen/actions/workflows/ci.yml/badge.svg)](https://github.com/filescodebox/ugreen/actions/workflows/ci.yml)
-[![Release](https://github.com/filescodebox/ugreen/actions/workflows/release.yml/badge.svg)](https://github.com/filescodebox/ugreen/releases)
+[![CI](https://github.com/pigeonbox/ugreen/actions/workflows/ci.yml/badge.svg)](https://github.com/pigeonbox/ugreen/actions/workflows/ci.yml)
+[![Release](https://github.com/pigeonbox/ugreen/actions/workflows/release.yml/badge.svg)](https://github.com/pigeonbox/ugreen/releases)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-FilesCodeBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 NAS（UGOS Pro）部署包**：官方 Docker 镜像（`ghcr.io/filescodebox/server` + `frontend`）的 docker compose 一键粘贴部署。
+PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 NAS（UGOS Pro）部署包**：官方 Docker 镜像（`ghcr.io/pigeonbox/server` + `frontend`）的 docker compose 一键粘贴部署。
 
 - UGOS Pro 1281 固件（2024-08）起 **Docker → 项目** 原生支持 compose，粘贴即部署
 - 镜像双版本：**ghcr 原版** + **国内加速版**（`ghcr.nju.edu.cn` 前缀，南京大学镜像）
@@ -18,10 +18,10 @@ FilesCodeBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 
 
 ## 安装（5 分钟）
 
-1. 下载本仓 [Releases](https://github.com/filescodebox/ugreen/releases) 的部署包 zip 并解压
+1. 下载本仓 [Releases](https://github.com/pigeonbox/ugreen/releases) 的部署包 zip 并解压
    （国内网络选 `compose.ghcr-mirror.yml`，其余步骤相同）
 2. UGOS Pro 桌面打开 **Docker** 应用 → 左侧 **项目** → 右上角 **创建**
-3. 项目名填 `filescodebox`（小写），配置来源选「粘贴/编辑 compose」，把 `compose.yml` 全文粘入
+3. 项目名填 `pigeonbox`（小写），配置来源选「粘贴/编辑 compose」，把 `compose.yml` 全文粘入
 4. （可选）把编排里 `FCB_ADMIN_PASSWORD` 一行改为你的管理员密码；不改为默认 `admin/admin123`
 5. 点 **部署**（或「应用」），等两个容器 running
 6. 浏览器访问 `http://NAS的IP:12345`，默认管理员 `admin/admin123`——**装完先改密码**
@@ -31,11 +31,11 @@ FilesCodeBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 
 | 位置 | 默认 | 说明 |
 |---|---|---|
 | `ports: "12345:8080"` | `12345` | 对外端口（冲突就换，如 `29345:8080`） |
-| `/volume1/docker/filescodebox/data:/app/data` | 见左 | 数据目录（SQLite+上传文件+JWT 密钥；**备份它=备份全部**） |
+| `/volume1/docker/pigeonbox/data:/app/data` | 见左 | 数据目录（SQLite+上传文件+JWT 密钥；**备份它=备份全部**） |
 | `FCB_ADMIN_PASSWORD` | 空 | 管理员密码（留空=`admin123`） |
 | `FCB_USER_ALLOW_REGISTRATION` | `false` | 开放注册开关 |
 
-装好后的日常修改：Docker → 项目 → filescodebox → 编辑 compose → 重新部署，配置即持久在该项目里。
+装好后的日常修改：Docker → 项目 → pigeonbox → 编辑 compose → 重新部署，配置即持久在该项目里。
 
 ## ghcr 拉取失败（国内网络）
 
@@ -46,26 +46,26 @@ FilesCodeBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 
 
 ## 数据与备份
 
-- 数据全在 `/volume1/docker/filescodebox/data`（`fileCodeBox.db`、上传文件、`.jwt_secret`）
+- 数据全在 `/volume1/docker/pigeonbox/data`（`fileCodeBox.db`、上传文件、`.jwt_secret`）
 - 备份 = 停止项目后在文件管理器复制该目录
 - 删除项目**不会**删数据目录；彻底清理请手动删除
 
 ## 常见问题
 
 - **部署时报端口占用**：换端口（改 `ports` 前半段）重新部署
-- **页面 502/容器反复重启**：等 1-2 分钟（后端健康检查通过后前端才放行）；仍异常看 `filecodebox` 容器日志
+- **页面 502/容器反复重启**：等 1-2 分钟（后端健康检查通过后前端才放行）；仍异常看 `pigeonbox` 容器日志
 - **取件/上传报权限错误**：数据目录属主需与容器内运行身份一致（uid 1000），SSH 执行
-  `chown -R 1000:1000 /volume1/docker/filescodebox/data` 后重新部署项目
+  `chown -R 1000:1000 /volume1/docker/pigeonbox/data` 后重新部署项目
 
 ## 升级
 
-改 compose 里两处镜像 tag（`server`/`frontend` 的 `:vX.Y.Z`，与 [server 仓 Releases](https://github.com/filescodebox/server/releases) 对齐）→ 重新部署。数据目录不动，配置/数据全保留。
+改 compose 里两处镜像 tag（`server`/`frontend` 的 `:vX.Y.Z`，与 [server 仓 Releases](https://github.com/pigeonbox/server/releases) 对齐）→ 重新部署。数据目录不动，配置/数据全保留。
 
 ## 开发与构建
 
-共享资产（`compose.yml` / `env.example` / `compose.ghcr-mirror.yml`）的**真相源在生态主仓 [`deploy/nas/`](https://github.com/filescodebox/filescodebox/tree/main/deploy/nas)**：改编排/默认值请改 hub 模板后执行 `bash deploy/nas/sync.sh sync`，**勿直接改本仓这两个文件**——CI 有「与 hub 模板对齐」漂移门禁，模板一动未同步的仓全部变红。跟随 server 新镜像版本走发版列车：hub 仓 `scripts/nas-release-train.sh <镜像tag> --push` 一条命令完成四处钉版+打 tag。
+共享资产（`compose.yml` / `env.example` / `compose.ghcr-mirror.yml`）的**真相源在生态主仓 [`deploy/nas/`](https://github.com/pigeonbox/pigeonbox/tree/main/deploy/nas)**：改编排/默认值请改 hub 模板后执行 `bash deploy/nas/sync.sh sync`，**勿直接改本仓这两个文件**——CI 有「与 hub 模板对齐」漂移门禁，模板一动未同步的仓全部变红。跟随 server 新镜像版本走发版列车：hub 仓 `scripts/nas-release-train.sh <镜像tag> --push` 一条命令完成四处钉版+打 tag。
 ```sh
-./scripts/build-zip.sh 0.1.0     # → dist/filescodebox-ugreen-0.1.0.zip(发布资产)
+./scripts/build-zip.sh 0.1.0     # → dist/pigeonbox-ugreen-0.1.0.zip(发布资产)
 docker compose -f deploy/compose.yml config -q   # 模板校验
 ```
 

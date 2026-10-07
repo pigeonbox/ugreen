@@ -2,7 +2,7 @@ name: Release
 # 打 v* tag → 部署包 zip 发布(绿联无免审包格式,UPK 应用中心送审为二期,见 upk/README.md):
 #   1. build: 组装 zip
 #   2. release: 挂本仓 Release
-#   3. attach-to-hub: 回挂生态主仓 filescodebox/filescodebox(tag ugreen-v*,
+#   3. attach-to-hub: 回挂生态主仓 pigeonbox/pigeonbox(tag ugreen-v*,
 #      与 fnos-v*/openwrt-v* 同模式);跨仓写用 UGREEN_PAT,未配置时本 job
 #      失败放行(continue-on-error),本地 `gh release upload` 兜底
 # workflow_dispatch: 传 version(现有 tag 名)对该版本手动重跑打包+双挂
@@ -52,7 +52,7 @@ jobs:
         run: |
           gh release view "${VER}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
             gh release create "${VER}" --repo "${GITHUB_REPOSITORY}" \
-              --title "FilesCodeBox UGREEN UGOS Pro ${VER}" \
+              --title "PigeonBox UGREEN UGOS Pro ${VER}" \
               --notes "绿联 NAS(UGOS Pro)部署包(compose 项目一键粘贴,见 Assets)。解压后按《安装指引.md》操作:Docker → 项目 → 创建 → 粘贴 compose → 部署。含 ghcr 原版与国内加速版两份编排。UPK 应用中心形态为二期(见 upk/)。"
           gh release upload "${VER}" rel/*.zip --repo "${GITHUB_REPOSITORY}" --clobber
 
@@ -71,14 +71,14 @@ jobs:
           TAG: ugreen-${{ inputs.version || github.ref_name }}
           VER: ${{ inputs.version || github.ref_name }}
         run: |
-          NOTES=$(printf '%s\n\n---\n🗂 **组件仓库**: [filescodebox/ugreen](https://github.com/filescodebox/ugreen) · **完整变更日志**: [%s](https://github.com/filescodebox/ugreen/releases/tag/%s)\n🌐 **生态总览 / Latest**: [filescodebox/filescodebox](https://github.com/filescodebox/filescodebox/releases/latest)\n' \
+          NOTES=$(printf '%s\n\n---\n🗂 **组件仓库**: [pigeonbox/ugreen](https://github.com/pigeonbox/ugreen) · **完整变更日志**: [%s](https://github.com/pigeonbox/ugreen/releases/tag/%s)\n🌐 **生态总览 / Latest**: [pigeonbox/pigeonbox](https://github.com/pigeonbox/pigeonbox/releases/latest)\n' \
             "绿联 NAS(UGOS Pro)compose 一键部署包(见 Assets)。安装说明见 ugreen 仓 README。" "${VER}" "${VER}")
-          gh release view "${TAG}" --repo filescodebox/filescodebox >/dev/null 2>&1 || \
-            gh release create "${TAG}" --repo filescodebox/filescodebox \
-              --title "FilesCodeBox UGREEN UGOS Pro ${VER}" \
+          gh release view "${TAG}" --repo pigeonbox/pigeonbox >/dev/null 2>&1 || \
+            gh release create "${TAG}" --repo pigeonbox/pigeonbox \
+              --title "PigeonBox UGREEN UGOS Pro ${VER}" \
               --latest=false \
               --notes "${NOTES}"
-          gh release upload "${TAG}" rel/*.zip --repo filescodebox/filescodebox --clobber
+          gh release upload "${TAG}" rel/*.zip --repo pigeonbox/pigeonbox --clobber
           # 组件回挂恒不为 Latest(Latest 属于 hub 生态快照 v*);release 已存在时也兜底纠偏
-          gh release edit "${TAG}" --repo filescodebox/filescodebox --latest=false || true
-          echo "已回挂到 filescodebox/filescodebox Releases"
+          gh release edit "${TAG}" --repo pigeonbox/pigeonbox --latest=false || true
+          echo "已回挂到 pigeonbox/pigeonbox Releases"

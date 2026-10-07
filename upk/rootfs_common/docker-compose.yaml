@@ -1,10 +1,10 @@
 # UPK 内嵌 compose(镜像 tar 由 CI docker save 进 rootfs_<arch>/images/,tag 一致;
 # 打包器强校验:变量仅限 project.yaml 已声明 parameters 与 ${TZ},禁 latest/privileged/host 网络)
 services:
-  filecodebox:
-    # CI 打包时替换为与内嵌 tar 一致的 tag(如 filescodebox/server:0.1.0-amd64)
-    image: ghcr.io/filescodebox/server:0.1.0
-    container_name: filescodebox-server
+  pigeonbox:
+    # CI 打包时替换为与内嵌 tar 一致的 tag(如 pigeonbox/server:0.1.0-amd64)
+    image: ghcr.io/pigeonbox/server:0.1.0
+    container_name: pigeonbox-server
     environment:
       - TZ=${TZ}
       - FCB_SERVER_MODE=release
@@ -24,17 +24,17 @@ services:
       retries: 5
 
   frontend:
-    image: ghcr.io/filescodebox/frontend:0.1.0
-    container_name: filescodebox-frontend
+    image: ghcr.io/pigeonbox/frontend:0.1.0
+    container_name: pigeonbox-frontend
     ports:
       - "${FCB_API_PORT}:8080"
     environment:
       - TZ=${TZ}
-      - BACKEND_HOST=filecodebox
+      - BACKEND_HOST=pigeonbox
       - BACKEND_PORT=12345
       - CLIENT_MAX_BODY_SIZE=1024m
     depends_on:
-      filecodebox:
+      pigeonbox:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

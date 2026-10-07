@@ -9,7 +9,7 @@ VERSION="${1:?用法: build-zip.sh <版本>(例: 0.1.0)}"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-OUT="dist/filescodebox-ugreen-${VERSION}.zip"
+OUT="dist/pigeonbox-ugreen-${VERSION}.zip"
 mkdir -p dist
 # 文本压 LF(UI 粘贴与 Windows 下载解压场景都不被 CRLF 坑)
 for f in deploy/compose.yml deploy/compose.ghcr-mirror.yml deploy/env.example README.md; do
