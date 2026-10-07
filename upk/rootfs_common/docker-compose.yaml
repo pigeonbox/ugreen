@@ -3,7 +3,7 @@
 services:
   pigeonbox:
     # CI 打包时替换为与内嵌 tar 一致的 tag(如 pigeonbox/server:0.1.0-amd64)
-    image: ghcr.io/pigeonbox/server:v0.15.3
+    image: ghcr.io/pigeonbox/server:v0.15.5
     container_name: pigeonbox-server
     environment:
       - TZ=${TZ}
@@ -24,7 +24,7 @@ services:
       retries: 5
 
   frontend:
-    image: ghcr.io/pigeonbox/frontend:v0.15.3
+    image: ghcr.io/pigeonbox/frontend:v0.15.5
     container_name: pigeonbox-frontend
     ports:
       - "${FCB_API_PORT}:8080"

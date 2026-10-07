@@ -3,8 +3,8 @@ name: Release
 #   1. build: 组装 zip
 #   2. release: 挂本仓 Release
 #   3. attach-to-hub: 回挂生态主仓 pigeonbox/pigeonbox(tag ugreen-v*,
-#      与 fnos-v*/openwrt-v* 同模式);跨仓写用 UGREEN_PAT,未配置时本 job
-#      失败放行(continue-on-error),本地 `gh release upload` 兜底
+#      与 fnos-v*/openwrt-v* 同模式);跨仓写用 UGREEN_PAT
+#      断链必须响(2026-10-08 拔除 continue-on-error——静默放行只会让 hub 统一出口缺资产)
 # workflow_dispatch: 传 version(现有 tag 名)对该版本手动重跑打包+双挂
 on:
   push:
@@ -57,7 +57,6 @@ jobs:
           gh release upload "${VER}" rel/*.zip --repo "${GITHUB_REPOSITORY}" --clobber
 
   attach-to-hub:
-    continue-on-error: true
     needs: build
     runs-on: ubuntu-latest
     steps:

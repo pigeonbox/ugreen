@@ -4,7 +4,7 @@
 # CI 出包参考 KOLFlow 的 build-ugreen-upk.yml(官方 ugcli 打包,镜像 tar 内嵌)。
 spec_version: "2.2"
 app_id: com.pigeonbox.app
-version: 0.1.0
+version: 1.14.0
 support_arch: [amd64, arm64]
 # Docker 应用:自动生成对 com.ugreen.docker 套件的 MustDepend 强依赖
 is_docker_app: true
