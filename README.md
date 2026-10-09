@@ -22,9 +22,9 @@ PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 NAS
    （国内网络选 `compose.ghcr-mirror.yml`，其余步骤相同）
 2. UGOS Pro 桌面打开 **Docker** 应用 → 左侧 **项目** → 右上角 **创建**
 3. 项目名填 `pigeonbox`（小写），配置来源选「粘贴/编辑 compose」，把 `compose.yml` 全文粘入
-4. （可选）把编排里 `FCB_ADMIN_PASSWORD` 一行改为你的管理员密码；不改为默认 `admin/admin123`
+4. **必做**：把编排里 `PB_ADMIN_PASSWORD` 一行改为你的强密码（安全生产模式，留空=容器拒绝启动）
 5. 点 **部署**（或「应用」），等两个容器 running
-6. 浏览器访问 `http://NAS的IP:12345`，默认管理员 `admin/admin123`——**装完先改密码**
+6. 浏览器访问 `http://NAS的IP:12345`，管理员 `admin`，密码=第 4 步设置的值
 
 ### 常用调参（粘贴前直接在 YAML 里改）
 
@@ -32,8 +32,8 @@ PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 NAS
 |---|---|---|
 | `ports: "12345:8080"` | `12345` | 对外端口（冲突就换，如 `29345:8080`） |
 | `/volume1/docker/pigeonbox/data:/app/data` | 见左 | 数据目录（SQLite+上传文件+JWT 密钥；**备份它=备份全部**） |
-| `FCB_ADMIN_PASSWORD` | 空 | 管理员密码（留空=`admin123`） |
-| `FCB_USER_ALLOW_REGISTRATION` | `false` | 开放注册开关 |
+| `PB_ADMIN_PASSWORD` | 空 | 管理员密码（**必填**：留空=容器拒绝启动；首次启动以此建号） |
+| `PB_USER_ALLOW_REGISTRATION` | `false` | 开放注册开关 |
 
 装好后的日常修改：Docker → 项目 → pigeonbox → 编辑 compose → 重新部署，配置即持久在该项目里。
 
