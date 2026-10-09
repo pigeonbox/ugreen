@@ -27,7 +27,7 @@ jobs:
         run: |
           VER="${{ inputs.version || github.ref_name }}"
           ./scripts/build-zip.sh "${VER#v}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: deploy-kit
           path: dist/*.zip

@@ -44,7 +44,7 @@ jobs:
           unzip -l dist/pigeonbox-ugreen-0.0.0.zip | grep -q compose.ghcr-mirror.yml
           unzip -l dist/pigeonbox-ugreen-0.0.0.zip | grep -q env.example
           unzip -l dist/pigeonbox-ugreen-0.0.0.zip | grep -q 安装指引.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: deploy-kit
           path: dist/*.zip
