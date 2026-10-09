@@ -7,12 +7,12 @@ services:
     container_name: pigeonbox-server
     environment:
       - TZ=${TZ}
-      - FCB_SERVER_MODE=release
-      - FCB_PRODUCTION=1
-      - FCB_JWT_SECRET=${FCB_JWT_SECRET:-}
-      - FCB_ADMIN_PASSWORD=${FCB_ADMIN_PASSWORD:-}
-      - FCB_USER_ALLOW_REGISTRATION=false
-      - FCB_REDIS_HOST=
+      - PB_SERVER_MODE=release
+      - PB_PRODUCTION=1
+      - PB_JWT_SECRET=${PB_JWT_SECRET:-}
+      - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD:-}
+      - PB_USER_ALLOW_REGISTRATION=false
+      - PB_REDIS_HOST=
     volumes:
       - ${DATA_PATH}:/app/data
     restart: unless-stopped
@@ -27,7 +27,7 @@ services:
     image: ghcr.io/pigeonbox/frontend:v0.15.5
     container_name: pigeonbox-frontend
     ports:
-      - "${FCB_API_PORT}:8080"
+      - "${PB_API_PORT}:8080"
     environment:
       - TZ=${TZ}
       - BACKEND_HOST=pigeonbox

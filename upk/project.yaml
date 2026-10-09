@@ -24,14 +24,14 @@ parameters:
     desc:
       zh-CN: 数据目录(SQLite 库+上传文件+JWT 密钥,备份它=备份全部)
       en-US: Data directory (SQLite DB + uploads + JWT secret; back it up = back up everything)
-  - key: FCB_API_PORT
+  - key: PB_API_PORT
     type: number
     required: true
     default_value: 12345
     desc:
       zh-CN: 对外端口(1024-65535)
       en-US: Public port (1024-65535)
-  - key: FCB_ADMIN_PASSWORD
+  - key: PB_ADMIN_PASSWORD
     type: password
     required: false
     desc:
