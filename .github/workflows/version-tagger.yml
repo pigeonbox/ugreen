@@ -8,6 +8,7 @@ on:
     paths: ["VERSION"]
 permissions:
   contents: write
+  actions: write
 concurrency: version-tagger
 jobs:
   tag:
@@ -26,4 +27,7 @@ jobs:
           if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then echo "tag ${TAG} 已存在,跳过"; exit 0; fi
           git config user.name "$GITHUB_ACTOR"; git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git tag "$TAG"; git push origin "refs/tags/${TAG}"
-          echo "✓ 已打 tag ${TAG},Release 工作流接管"
+          # 1.15.0 列车实测:token 推 tag 不产生 push 事件,Release 静默不触发→显式 dispatch 兜底(与 push 触发幂等共存)
+          gh workflow run release.yml --ref "$GITHUB_REF_NAME" -f version="$TAG" \
+            || { echo "::error::Release dispatch 失败——断链不吞错,立即人工补救"; exit 1; }
+          echo "✓ 已打 tag ${TAG} 并 dispatch Release"
