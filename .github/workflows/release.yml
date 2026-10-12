@@ -23,6 +23,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.version || github.ref_name }}
+      - name: 版本一致性断言(VERSION 与 tag 对齐——错 tag/错内容拒发)
+        run: |
+          VER=${{ inputs.version || github.ref_name }}
+          if [ -f VERSION ]; then
+            [ "$(cat VERSION)" = "${VER#v}" ] || { echo "::error::VERSION=$(cat VERSION) ≠ tag $VER——发版走 hub 列车 bump,勿手改 VERSION/tag 错位"; exit 1; }
+          fi
       - name: 组装部署包 zip(tag v0.1.0 → 0.1.0)
         run: |
           VER="${{ inputs.version || github.ref_name }}"
