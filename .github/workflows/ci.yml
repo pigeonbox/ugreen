@@ -26,11 +26,16 @@ jobs:
       - name: project.yaml 可解析
         run: python3 -c "import yaml,sys;yaml.safe_load(open('upk/project.yaml'))"
       - name: 共享资产与 hub 模板对齐(漂移门禁)
-        # 模板真相源=hub 仓 deploy/nas/;模板一动未同步的仓全部变红
+        # 模板真相源=hub 仓 deploy/nas/。列车 bump PR 窗口:读 hub 同列车分支模板
+        # (消灭「物化已新版、模板仍旧版」的合并时序窗,1.20.0 首航实测);脚本与模板
+        # 一律 gh api 实时读(raw CDN ~5min 缓存=幽灵模板)。push 事件 head_ref 空→main。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -fsSL --retry 3 --connect-timeout 15 \
-            https://raw.githubusercontent.com/pigeonbox/pigeonbox/main/deploy/nas/sync.sh -o /tmp/nas-sync.sh
-          bash /tmp/nas-sync.sh check --platform ugreen --dir .
+          REF=main
+          case "${{ github.head_ref }}" in train/*) REF="${{ github.head_ref }}";; esac
+          gh api "repos/pigeonbox/pigeonbox/contents/deploy/nas/sync.sh?ref=$REF" --jq .content | base64 -d > /tmp/nas-sync.sh
+          PB_NAS_TEMPLATE_REF="$REF" bash /tmp/nas-sync.sh check --platform ugreen --dir .
 
   build:
     runs-on: ubuntu-latest
