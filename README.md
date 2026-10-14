@@ -11,6 +11,7 @@ PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 NAS
 - JWT 密钥首启自动生成并持久化到数据目录，重启/升级不丢
 - 开机自启：编排内已置 `restart: unless-stopped`，随 Docker 套件拉起
 - 默认关闭开放注册（NAS 场景，管理员建号）
+- 设备直传：server 镜像自 1.21.0 起随包 p2pc，compose 部署即具设备直传能力；admin「系统配置→P2P」分区热启停联邦与设备直传
 
 > 系统要求：UGOS Pro（DXP4800/DXP6800/DXP8800 等），Docker 应用可用。
 > 绿联官方暂无免审的第三方包格式：UPK（应用中心包）需开发者授权 sideload / 邮件送审上架，
@@ -63,7 +64,7 @@ PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **绿联 NAS
 
 ## 开发与构建
 
-共享资产（`compose.yml` / `env.example` / `compose.ghcr-mirror.yml`）的**真相源在生态主仓 [`deploy/nas/`](https://github.com/pigeonbox/pigeonbox/tree/main/deploy/nas)**：改编排/默认值请改 hub 模板后执行 `bash deploy/nas/sync.sh sync`，**勿直接改本仓这两个文件**——CI 有「与 hub 模板对齐」漂移门禁，模板一动未同步的仓全部变红。跟随 server 新镜像版本走发版列车：hub 仓 `scripts/nas-release-train.sh <镜像tag> --push` 一条命令完成四处钉版+打 tag。
+共享资产（`compose.yml` / `env.example` / `compose.ghcr-mirror.yml`）的**真相源在生态主仓 [`deploy/nas/`](https://github.com/pigeonbox/pigeonbox/tree/main/deploy/nas)**：改编排/默认值请改 hub 模板后执行 `bash deploy/nas/sync.sh sync --all`（单仓 `sync --platform <p> --dir <仓>`），**勿直接改本仓这两个文件**——CI 有「与 hub 模板对齐」漂移门禁，模板一动未同步的仓全部变红。跟随 server 新镜像版本走发布列车 v2：hub `make train-bump TRAIN=x.y.z`（`release/trainctl` 状态机）统一完成镜像钉版刷新与各仓打 tag。
 ```sh
 ./scripts/build-zip.sh 0.1.0     # → dist/pigeonbox-ugreen-0.1.0.zip(发布资产)
 docker compose -f deploy/compose.yml config -q   # 模板校验
