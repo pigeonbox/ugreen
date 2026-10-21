@@ -22,6 +22,7 @@ services:
       - PB_JWT_SECRET=${PB_JWT_SECRET:-}
       # 管理员密码必填(PB_PRODUCTION=1,留空=容器拒绝启动——防 admin/admin123 弱口令上线), .env 注入
       - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD:-}
+      - PB_SETUP_TOKEN=${PB_SETUP_TOKEN:-}
       # 对外完整地址(生成分享链接用; 有域名/HTTPS 反代时在 .env 填)
       - PB_SERVER_BASE_URL=${PB_SERVER_BASE_URL:-}
       # NAS 场景默认关闭开放注册(管理员建号), 与 fnos 适配层同款
@@ -49,6 +50,15 @@ services:
           export PB_JWT_SECRET
           printf '%s' "$$PB_JWT_SECRET" > /app/data/.jwt_secret
           chmod 600 /app/data/.jwt_secret
+        fi
+        # 首启逃逸门(2026-10-22 全生态统一): 未设管理员密码时不播种弱口令
+        # admin/admin123, 改走 /setup 首启向导(浏览器里建号)。
+        # 为什么这样更安全: 弱口令是**可被扫描器猜到**的; 未初始化实例要有人
+        # 刻意访问 /setup 才能认领 —— 后者的暴露面小得多。
+        # 已有实例零副作用: core 的 CreateDefaultAdmin 见到已有管理员直接返回。
+        # 与 openwrt 的 procd 段同款条件(openwrt 2026-10-15 起即如此)。
+        if [ -z "$$PB_ADMIN_PASSWORD" ]; then
+          export PB_DISABLE_DEFAULT_ADMIN=true
         fi
         exec ./server --config ./config/config.yaml
     restart: unless-stopped
