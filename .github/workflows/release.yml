@@ -16,11 +16,24 @@ on:
         required: true
         type: string
 
+concurrency:
+  # 手动 dispatch 重跑与 tag 自动触发可能并发写同一 Release(--clobber:先写者被
+  # 静默覆盖,不报错)。按目标版本分组串行;cancel-in-progress:false——发布中途
+  # 取消比排队更糟。键取目标版本而非 github.ref:dispatch 的 ref 是分支、
+  # tag 触发的 ref 是 tag,用 ref 分组等于没分组。
+  group: ${{ github.workflow }}-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+# 默认只读;真正要写本仓 Release 的作业在作业级单独开 contents: write
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.version || github.ref_name }}
       - name: 版本一致性断言(VERSION 与 tag 对齐——错 tag/错内容拒发)
@@ -33,7 +46,7 @@ jobs:
         run: |
           VER="${{ inputs.version || github.ref_name }}"
           ./scripts/build-zip.sh "${VER#v}"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: deploy-kit
           path: dist/*.zip
@@ -44,10 +57,11 @@ jobs:
     if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: deploy-kit
           path: rel
@@ -65,8 +79,9 @@ jobs:
   attach-to-hub:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: deploy-kit
           path: rel
