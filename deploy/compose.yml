@@ -12,7 +12,7 @@
 
 services:
   pigeonbox:
-    image: ghcr.io/pigeonbox/server:${PB_IMAGE_TAG:-2.2.0}
+    image: ghcr.io/pigeonbox/server:${PB_IMAGE_TAG:-3.0.0}
     container_name: pigeonbox-server
     environment:
       - TZ=${TZ:-Asia/Shanghai}
@@ -20,8 +20,14 @@ services:
       - PB_PRODUCTION=1
       # JWT 密钥留空 → 容器首启自动生成强随机值并持久化到数据目录(重启/升级不丢)
       - PB_JWT_SECRET=${PB_JWT_SECRET:-}
-      # 管理员密码必填(PB_PRODUCTION=1,留空=容器拒绝启动——防 admin/admin123 弱口令上线), .env 注入
+      # 管理员密码:本编排默认 PB_PRODUCTION=1(生产模式),留空且库中无 admin 时
+      # 后端拒绝启动(ErrInsecureDefaultAdmin)。必须设 PB_ADMIN_PASSWORD;
+      # 或设 PB_DISABLE_DEFAULT_ADMIN=true 跳过默认管理员,走 /setup 向导建号
       - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD:-}
+      - PB_DISABLE_DEFAULT_ADMIN=${PB_DISABLE_DEFAULT_ADMIN:-}
+      # 首启令牌(可选): 设任意非空值后,首启建号页必须填对令牌才能建号。
+      # 未初始化的实例上 /setup 无鉴权——谁先访问谁建号(setup-race)。
+      # 公网部署建议设此项; 内网自托管留空即可(打开浏览器走完首启,零摩擦)。
       - PB_SETUP_TOKEN=${PB_SETUP_TOKEN:-}
       # 对外完整地址(生成分享链接用; 有域名/HTTPS 反代时在 .env 填)
       - PB_SERVER_BASE_URL=${PB_SERVER_BASE_URL:-}
@@ -76,7 +82,7 @@ services:
         max-file: "3"
 
   frontend:
-    image: ghcr.io/pigeonbox/frontend:${PB_IMAGE_TAG:-2.2.0}
+    image: ghcr.io/pigeonbox/frontend:${PB_IMAGE_TAG:-3.0.0}
     container_name: pigeonbox-frontend
     ports:
       - "${PB_API_BIND:-0.0.0.0}:${PB_API_PORT:-12345}:8080"
