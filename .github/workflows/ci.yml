@@ -33,7 +33,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REF=main
+          # 分支名来源**两种事件都要覆盖**（2026-10-24 实录，3.3.23 列车卡死实录）：
+          #   · pull_request：github.head_ref = 源分支名（PR 场景）
+          #   · push       ：github.head_ref **为空**，但 github.ref = refs/heads/<分支>
+          # 此前只认 head_ref ⇒ push 事件（列车分支推送时触发）恒取 main ⇒ 期望侧读
+          # **上一车**的 hub 模板，而实际侧读**本车**已物化的内容 ⇒ **必假漂移**
+          # ⇒ 三个 NAS 物化 PR 全红 ⇒ auto-merge 被阻断 ⇒ 整条列车卡在 draft。
           case "${{ github.head_ref }}" in train/*) REF="${{ github.head_ref }}";; esac
+          if [ "$REF" = main ]; then
+            case "${{ github.ref }}" in refs/heads/train/*) REF="${{ github.ref_name }}";; esac
+          fi
           gh api "repos/pigeonbox/pigeonbox/contents/deploy/nas/sync.sh?ref=$REF" --jq .content | base64 -d > /tmp/nas-sync.sh
           PB_NAS_TEMPLATE_REF="$REF" bash /tmp/nas-sync.sh check --platform ugreen --dir .
 
