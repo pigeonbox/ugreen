@@ -43,6 +43,22 @@ jobs:
           if [ "$REF" = main ]; then
             case "${{ github.ref }}" in refs/heads/train/*) REF="${{ github.ref_name }}";; esac
           fi
+          # 期望侧再定位一次：**按本仓 VERSION 找 hub 的同名 tag / 列车分支**。
+          # 2026-10-26 实录（4.0.2 列车）：上面的 head_ref/ref_name 只在「列车分支」
+          # 事件里取到 train/*；**列车 PR 合进本仓 main 之后**的 push 事件 ⇒
+          # 期望侧回落到 hub 的 main —— 而 hub 的列车 PR 此刻**还没合** ⇒ 期望侧是
+          # **上一车**的模板（4.0.1），实际侧已是本车（4.0.2）⇒ **必假漂移**
+          # ⇒ 三个 NAS 仓在 main 上 CI 红（drift gate 报 2 处漂移）。
+          # ⇒ 期望侧改为逐个探测：hub 的 tag v<VERSION>（列车已发版 ⇒ 不可变、最准）
+          #   → hub 的 train/<VERSION> 分支（列车窗口内）→ main（兜底）。
+          VER="$(tr -d '[:space:]' < VERSION 2>/dev/null || true)"
+          if [ -n "$VER" ] && [ "$REF" = main ]; then
+            for cand in "v${VER}" "train/${VER}"; do
+              if gh api "repos/pigeonbox/pigeonbox/contents/deploy/nas/sync.sh?ref=${cand}" --jq .content >/dev/null 2>&1; then
+                REF="$cand"; break
+              fi
+            done
+          fi
           gh api "repos/pigeonbox/pigeonbox/contents/deploy/nas/sync.sh?ref=$REF" --jq .content | base64 -d > /tmp/nas-sync.sh
           PB_NAS_TEMPLATE_REF="$REF" bash /tmp/nas-sync.sh check --platform ugreen --dir .
 
