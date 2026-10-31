@@ -53,6 +53,41 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  # ── UPK 应用包（绿联 UGOS Pro 应用中心）──────────────────────────────
+  # 独立 job：镜像 tar 导出（4 个 tar 约 260MB）耗时长且体积大，
+  # 不与 deploy-kit 的 zip 组装挤在同一个 job 里。
+  #
+  # 产物是「ugcli pack 的输入」：官方 ugcli 必须在 Linux 上跑（保证 Unix
+  # 执行位），且 sideload 需设备开发者授权（ugdev.sig）⇒ 最终 .upk 的产出
+  # 与上架是外部条件。本 job 把能自动化的部分做完：骨架 + 内嵌镜像 tar + 校验。
+  upk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.version || github.ref_name }}
+      - name: 组装 UPK 骨架 + 导出内嵌镜像 tar
+        env:
+          # 送审用 Docker Hub；本地/CI 自检可用 ghcr.io。
+          # ⚠️ Docker Hub 镜像尚未发布时，本 job 仍可产出 ghcr 版的骨架
+          #    （compose 里钉的是 docker.io ⇒ 校验器会报「镜像源」红灯）⇒
+          #    故默认走 ghcr 导出、**不改** compose（compose 是送审形态）。
+          UPK_REGISTRY: ghcr.io
+          UPK_NAMESPACE: pigeonbox
+        run: |
+          VER="${{ inputs.version || github.ref_name }}"
+          ./scripts/build-upk.sh "${VER#v}"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: upk-kit
+          path: |
+            dist/pigeonbox-ugreen-upk-*.tar.gz
+            dist/pigeonbox-upk-images-*.tar.gz
+            dist/SHA256SUMS-UPK
+          retention-days: 14
+          if-no-files-found: error
+
   release:
     if: github.event_name == 'push'
     needs: build

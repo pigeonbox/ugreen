@@ -1,15 +1,24 @@
-# UPK 内嵌 compose(镜像 tar 由 CI docker save 进 rootfs_<arch>/images/,tag 一致;
+# UPK 内嵌 compose(镜像 tar 由 CI 导进 rootfs_<arch>/images/,tag 一致;
 # 打包器强校验:变量仅限 project.yaml 已声明 parameters 与 ${TZ},禁 latest/privileged/host 网络)
+#
+# ⚠️ **image 的 tag 必须与内嵌 tar 一一对应**（打包器按 tag 找 tar）⇒
+#    改版本时**必须**同步改这里 + 重跑 scripts/export_upk_images.py
+#    ⇒ scripts/check_upk_package.py 有一条规则专查这个（tag 与 VERSION 不符即红）。
+# ⚠️ 送审用 **Docker Hub** 镜像（TOS/UPK 应用商店只收 Docker Hub）：
+#    生态镜像线已双推 ghcr + Docker Hub ⇒ 这里的引用指向 Docker Hub。
 services:
   pigeonbox:
-    # CI 打包时替换为与内嵌 tar 一致的 tag(如 pigeonbox/server:0.1.0-amd64)
-    image: ghcr.io/pigeonbox/server:0.15.9
+    image: docker.io/pigeonbox/server:4.6.3
     container_name: pigeonbox-server
     environment:
       - TZ=${TZ}
       - PB_SERVER_MODE=release
       - PB_PRODUCTION=1
-      - PB_JWT_SECRET=${PB_JWT_SECRET:-}
+      # ⚠️ **不注入 PB_JWT_SECRET**：server 镜像的 entrypoint 自己管密钥持久化
+      #    （读 /app/data/.jwt_secret；没有就生成并写回）⇒ 卸载重装不丢密钥。
+      #    且官方打包器强校验「compose 变量必须都在 project.yaml 声明」
+      #    ⇒ 注入一个未声明的变量会让**打包直接失败**（2026-10-31 实测：
+      #    check_upk_package.py 抓出这条）。
       - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD:-}
       - PB_USER_ALLOW_REGISTRATION=false
       - PB_REDIS_HOST=
@@ -24,7 +33,7 @@ services:
       retries: 5
 
   frontend:
-    image: ghcr.io/pigeonbox/frontend:0.15.9
+    image: docker.io/pigeonbox/frontend:4.6.3
     container_name: pigeonbox-frontend
     ports:
       - "${PB_API_PORT}:8080"
