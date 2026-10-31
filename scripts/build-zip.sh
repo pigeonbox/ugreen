@@ -16,7 +16,8 @@ ROOT="$(pwd)"
 
 VERSION="${1:?用法: build-zip.sh <版本>(例: 0.1.0)}"
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+OK=0
+trap 'rc=$?; rm -rf "$STAGE"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "$OK" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 OUT="dist/pigeonbox-ugreen-${VERSION}.zip"
 OUT_ABS="$ROOT/$OUT"
@@ -55,3 +56,4 @@ echo "✓ 构建未改动任何源文件(内容指纹一致)"
 
 echo "✓ ${OUT}"
 unzip -l "$OUT_ABS"
+OK=1

@@ -1,11 +1,14 @@
 name: Release
-# 打 v* tag → 部署包 zip 发布(绿联无免审包格式,UPK 应用中心送审为二期,见 upk/README.md):
+# 打 v* tag → 部署包 zip 发布(绿联无免审包格式) + UPK 应用中心骨架包
+# (ugcli pack 的输入,见 upk/README.md):
 #   1. build: 组装 zip
-#   2. release: 挂本仓 Release
-#   3. attach-to-hub: 回挂生态主仓 pigeonbox/pigeonbox(tag ugreen-v*,
+#   2. upk: 组装 UPK 骨架 + 导出内嵌镜像 tar(须等 ghcr 镜像发布,见该 job 注释)
+#   3. release: 挂本仓 Release(zip + UPK 骨架包)——**以 upk 为门禁**
+#   4. attach-to-hub: 回挂生态主仓 pigeonbox/pigeonbox(tag ugreen-v*,
 #      与 fnos-v*/openwrt-v* 同模式);跨仓写用 UGREEN_PAT
 #      断链必须响(2026-10-08 拔除 continue-on-error——静默放行只会让 hub 统一出口缺资产)
 # workflow_dispatch: 传 version(现有 tag 名)对该版本手动重跑打包+双挂
+#      (可用于修复失败的发布：upk 失败 ⇒ 本次不发任何东西,重跑即可补上)
 on:
   push:
     tags: ["v*"]
@@ -60,9 +63,23 @@ jobs:
   # 产物是「ugcli pack 的输入」：官方 ugcli 必须在 Linux 上跑（保证 Unix
   # 执行位），且 sideload 需设备开发者授权（ugdev.sig）⇒ 最终 .upk 的产出
   # 与上架是外部条件。本 job 把能自动化的部分做完：骨架 + 内嵌镜像 tar + 校验。
+  #
+  # ⚠️ **必须等镜像发布**（2026-10-31 实测的真缺陷）：
+  #   内嵌镜像 tar 来自 ghcr 的 server/frontend 镜像，而那些镜像是由
+  #   **另一个仓**（pigeonbox/server）的 release 流水线推的 ⇒ 两边**并发**，
+  #   本仓无从用 `needs:` 排序；而多架构 push 约 20 分钟，manifest **索引**
+  #   是 buildx 在 push **末尾**才写的 ⇒ tag 在整个推送期间都查不到
+  #   （匿名查 manifest = **404**）。
+  #   实测：4.6.4 的本 job 在 tag 推送后 1 分钟起跑 ⇒ 4 个 tar 全部
+  #   「取 manifest 失败（HTTP 404）」⇒ **UPK 产物根本没出来**，
+  #   而 release job 不依赖本 job ⇒ Release 照样发出去（少了 UPK 资产）
+  #   ⇒ **部分交付静默发布**。
+  #   ⇒ 修法：① 导出脚本按 UPK_IMAGE_WAIT_MINUTES 轮询等待（404 = 还没发布）；
+  #     ② release / attach-to-hub 以本 job 为门禁 ⇒ 本 job 失败则**什么都不发**。
   upk:
+    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -75,6 +92,8 @@ jobs:
           #    故默认走 ghcr 导出、**不改** compose（compose 是送审形态）。
           UPK_REGISTRY: ghcr.io
           UPK_NAMESPACE: pigeonbox
+          # 镜像尚未发布时的等待预算（分钟）。要给足多架构 push 的时间。
+          UPK_IMAGE_WAIT_MINUTES: "40"
         run: |
           VER="${{ inputs.version || github.ref_name }}"
           ./scripts/build-upk.sh "${VER#v}"
@@ -89,10 +108,9 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'push'
-    needs: build
+    needs: [build, upk]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -100,19 +118,30 @@ jobs:
         with:
           name: deploy-kit
           path: rel
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: upk-kit
+          path: rel-upk
       - name: 挂本仓 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VER: ${{ github.ref_name }}
+          # ⚠️ 用 `inputs.version || github.ref_name`（不是裸 ref_name）：
+          #    dispatch 时 ref_name 是**分支名**而不是 tag 名 ⇒ 裸用会挂错版本。
+          VER: ${{ inputs.version || github.ref_name }}
         run: |
           gh release view "${VER}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
             gh release create "${VER}" --repo "${GITHUB_REPOSITORY}" \
               --title "PigeonBox UGREEN UGOS Pro ${VER}" \
-              --notes "绿联 NAS(UGOS Pro)部署包(compose 项目一键粘贴,见 Assets)。解压后按《安装指引.md》操作:Docker → 项目 → 创建 → 粘贴 compose → 部署。含 ghcr 原版与国内加速版两份编排。UPK 应用中心形态为二期(见 upk/)。"
+              --notes "绿联 NAS(UGOS Pro)部署包(compose 项目一键粘贴,见 Assets)。解压后按《安装指引.md》操作:Docker → 项目 → 创建 → 粘贴 compose → 部署。含 ghcr 原版与国内加速版两份编排。UPK 应用中心形态的**骨架包**(内嵌镜像 tar,ugcli pack 的输入)见 Assets 中的 pigeonbox-ugreen-upk-*.tar.gz 与 SHA256SUMS-UPK。"
           gh release upload "${VER}" rel/*.zip --repo "${GITHUB_REPOSITORY}" --clobber
+          # UPK 骨架包也要落到 Release 上——只放 CI artifact(保留 14 天)等于
+          # **没发布**：用户从 Release 页面拿不到它。
+          gh release upload "${VER}" rel-upk/pigeonbox-ugreen-upk-*.tar.gz \
+            rel-upk/pigeonbox-upk-images-*.tar.gz rel-upk/SHA256SUMS-UPK \
+            --repo "${GITHUB_REPOSITORY}" --clobber
 
   attach-to-hub:
-    needs: build
+    needs: [build, upk]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -44,6 +44,10 @@ def main() -> int:
     ap.add_argument("--namespace", default="pigeonbox")
     ap.add_argument("--only-arch", default="",
                     help="只导某个架构（linux/amd64 或 linux/arm64）")
+    ap.add_argument("--wait-minutes", type=float, default=0.0,
+                    help="镜像尚未发布（manifest 404）时的等待预算（分钟）")
+    ap.add_argument("--base-url", default=None,
+                    help="registry 基址覆盖（仅测试用）")
     args = ap.parse_args()
 
     arches = [args.only_arch] if args.only_arch else list(ARCH_DIR)
@@ -59,11 +63,13 @@ def main() -> int:
             image = f"{args.registry}/{args.namespace}/{name}"
             out = outdir / f"pigeonbox-{svc}-{args.version}.tar"
             print(f"→ {image}:{args.version} ({platform}) → {out.relative_to(REPO)}")
-            rc = subprocess.run(
-                [sys.executable, str(HERE / "export_image_tar.py"),
-                 "--image", image, "--tag", args.version,
-                 "--platform", platform, "--out", str(out)],
-            ).returncode
+            cmd = [sys.executable, str(HERE / "export_image_tar.py"),
+                   "--image", image, "--tag", args.version,
+                   "--platform", platform, "--out", str(out),
+                   "--wait-minutes", str(args.wait_minutes)]
+            if args.base_url:
+                cmd += ["--base-url", args.base_url]
+            rc = subprocess.run(cmd).returncode
             if rc != 0:
                 failed.append(f"{image}:{args.version} ({platform})")
     if failed:
