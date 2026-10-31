@@ -40,7 +40,8 @@ WAIT_MINUTES="${UPK_IMAGE_WAIT_MINUTES:-0}"
 STAGE="$(mktemp -d)"
 # ⚠️ trap 的动作**不能**带重定向（`trap ... >&2` 是无效语法 ⇒ trap 报 usage 并中止）。
 #    清理信息走 stdout 即可（CI 日志里能看到）。
-trap 'rm -rf "$STAGE"; echo "（已清理临时目录 ${STAGE}）"' EXIT
+OK=0
+trap 'rc=$?; rm -rf "$STAGE"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "$OK" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 OUT_DIR="$ROOT/dist"
 mkdir -p "$OUT_DIR"
@@ -103,3 +104,4 @@ sha256sum pigeonbox-ugreen-upk-${VERSION}.tar.gz \
 cat SHA256SUMS-UPK
 ls -la "$OUT_DIR"
 echo "✓ UPK 组装完成：$UPK_TAR"
+OK=1
