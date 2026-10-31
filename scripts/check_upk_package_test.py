@@ -51,19 +51,29 @@ def m_quay_image(pkg: Path) -> None:
 
 
 def m_latest_tag(pkg: Path) -> None:
+    """把镜像 tag 改成 :latest。
+
+    ⚠️ 用**正则**匹配任意版本号（版本无关）——写死版本号的话，
+    列车 bump 后 replace 什么也没替换 ⇒ 变异没生效 ⇒ 判据「测不出」
+    ⇒ 门禁变摆设（且静默）。2026-10-31 在 terramaster 仓踩过这个坑。
+    """
     f = pkg / "rootfs_common" / "docker-compose.yaml"
     s = read(f)
     import re
-    s = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\1latest", s)
-    write(f, s)
+    s2 = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\1latest", s)
+    if s2 == s:
+        raise AssertionError("m_latest_tag 变异未生效：compose 里没匹配到版本号")
+    write(f, s2)
 
 
 def m_version_drift(pkg: Path) -> None:
     f = pkg / "rootfs_common" / "docker-compose.yaml"
     s = read(f)
     import re
-    s = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\g<1>0.0.1", s)
-    write(f, s)
+    s2 = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\g<1>0.0.1", s)
+    if s2 == s:
+        raise AssertionError("m_version_drift 变异未生效：compose 里没匹配到版本号")
+    write(f, s2)
 
 
 def m_undeclared_var(pkg: Path) -> None:
