@@ -35,6 +35,11 @@ jobs:
       # 否则上面那道门禁只是摆设。
       - name: UPK 校验器自测（变异测试）
         run: python3 scripts/check_upk_package_test.py
+      # 镜像导出脚本的「等待镜像发布」判据自测（2026-10-31 新增）。
+      # 这条判据失效 ⇒ 4.6.4 那种「镜像还在推、upk job 已起跑」的竞态会静默复活
+      # ⇒ UPK 产物出不来、而 Release 照发（部分交付）。
+      - name: 镜像导出等待判据自测（本地假 registry 真跑脚本）
+        run: python3 scripts/export_image_tar_test.py
       - name: 共享资产与 hub 模板对齐(漂移门禁)
         # 模板真相源=hub 仓 deploy/nas/。列车 bump PR 窗口:读 hub 同列车分支模板
         # (消灭「物化已新版、模板仍旧版」的合并时序窗,1.20.0 首航实测);脚本与模板
