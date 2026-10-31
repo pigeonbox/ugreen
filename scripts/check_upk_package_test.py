@@ -51,19 +51,29 @@ def m_quay_image(pkg: Path) -> None:
 
 
 def m_latest_tag(pkg: Path) -> None:
+    """把镜像 tag 改成 :latest。
+
+    ⚠️ 用**正则**匹配任意版本号（版本无关）——写死版本号的话，
+    列车 bump 后 replace 什么也没替换 ⇒ 变异没生效 ⇒ 判据「测不出」
+    ⇒ 门禁变摆设（且静默）。2026-10-31 在 terramaster 仓踩过这个坑。
+    """
     f = pkg / "rootfs_common" / "docker-compose.yaml"
     s = read(f)
     import re
-    s = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\1latest", s)
-    write(f, s)
+    s2 = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\1latest", s)
+    if s2 == s:
+        raise AssertionError("m_latest_tag 变异未生效：compose 里没匹配到版本号")
+    write(f, s2)
 
 
 def m_version_drift(pkg: Path) -> None:
     f = pkg / "rootfs_common" / "docker-compose.yaml"
     s = read(f)
     import re
-    s = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\g<1>0.0.1", s)
-    write(f, s)
+    s2 = re.sub(r"(image: docker\.io/pigeonbox/server:)[^\s]+", r"\g<1>0.0.1", s)
+    if s2 == s:
+        raise AssertionError("m_version_drift 变异未生效：compose 里没匹配到版本号")
+    write(f, s2)
 
 
 def m_undeclared_var(pkg: Path) -> None:
@@ -104,17 +114,18 @@ def m_bad_port(pkg: Path) -> None:
 def m_missing_tar(pkg: Path) -> None:
     """compose 引用的镜像在 images/ 下**没有对应**的 tar。
 
-    ⚠️ 变异形态要点：不能只是「造一个别的版本的 tar」——若 images/ 里本来
-    就有正确命名的 tar，变异就没有造成缺失 ⇒ 判据测不出。
-    ⇒ 必须**清空** images/ 后只造一个错版本的 tar。
-    （另有一条独立判据：「tar 全空 ⇒ 黄灯而非红灯」，见 check_all_tars_missing_is_yellow。）
+    ⚠️ 变异形态要点（2026-10-31 调整）：
+    造一个**版本号不同**的 tar 现在判**黄灯**（旧版残留 ⇒ 还没导出本车），
+    所以这条红灯判据要用「**命名完全不对**」的 tar（如 wrong-name.tar）——
+    那才是「导出流程与 compose 漂移」的真形态。
+    （「版本不同 ⇒ 黄灯」由另一条反向判据覆盖。）
     """
     for arch in ("rootfs_amd64", "rootfs_arm64"):
         d = pkg / arch / "images"
         d.mkdir(parents=True, exist_ok=True)
         for old in d.glob("*.tar"):
             old.unlink()
-        write(d / "pigeonbox-server-0.0.1.tar", "dummy")
+        write(d / "wrong-name.tar", "dummy")
 
 
 def m_all_tars_missing(pkg: Path) -> None:
@@ -128,6 +139,23 @@ def m_all_tars_missing(pkg: Path) -> None:
         d.mkdir(parents=True, exist_ok=True)
         for old in d.glob("*.tar"):
             old.unlink()
+
+
+def m_stale_tars_only(pkg: Path) -> None:
+    """images/ 里只有**旧版**的 tar（缺本车）⇒ 应判**黄灯**而非红灯。
+
+    ⚠️ 为什么这条重要：镜像 tar **不入 git** ⇒ 本地跑过导出脚本后目录里
+    会留**上一版**的 tar，而 compose 已随列车 bump 到本车 ⇒ 「缺本车 tar」
+    是**还没导出本车**（黄灯），不是「导出流程与 compose 漂移」（红灯）。
+    ⇒ 若判成红灯，列车 bump 后本地必然红 ⇒ 门禁变噪声。
+    """
+    for arch in ("rootfs_amd64", "rootfs_arm64"):
+        d = pkg / arch / "images"
+        d.mkdir(parents=True, exist_ok=True)
+        for old in d.glob("*.tar"):
+            old.unlink()
+        write(d / "pigeonbox-server-0.0.1.tar", "dummy")
+        write(d / "pigeonbox-frontend-0.0.1.tar", "dummy")
 
 
 CASES = [
@@ -178,25 +206,28 @@ def main() -> int:
             print("   -", f)
         return 1
 
-    # ── 反向判据：tar 全空 ⇒ **黄灯**而非红灯 ─────────────────────────
-    # ⚠️ tar 不入 git ⇒ 仓库 checkout 里必然为空 ⇒ 若判成红灯，CI 永远红
-    # ⇒ 门禁变噪声 ⇒ 没人看 ⇒ 等于没有门禁。
-    tmp = tempfile.mkdtemp(prefix="upk-yellow-")
-    pkg = Path(tmp) / "upk"
-    shutil.copytree(PKG, pkg)
-    try:
-        m_all_tars_missing(pkg)
-        code, out = run_checker(pkg)
-        if code != 0:
-            print("  ✗ tar 全空被判红灯（应判黄灯：tar 不入 git ⇒ 仓库里必然为空）")
-            failures.append("tar 全空被判红灯")
-        elif "为空" not in out:
-            print("  ✗ tar 全空未给黄灯提示")
-            failures.append("tar 全空未给黄灯提示")
-        else:
-            print("  ✓ tar 全空: 判黄灯且给出提示（不阻断 CI）")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    # ── 反向判据：tar 全空 / 只有旧版残留 ⇒ **黄灯**而非红灯 ──────────
+    # ⚠️ tar 不入 git ⇒ 仓库 checkout 里必然为空；本地跑过导出脚本后会留
+    #    旧版残留 ⇒ 这两种情况都必须判黄灯，否则列车 bump 后本地必然红
+    #    ⇒ 门禁变噪声 ⇒ 没人看。
+    for label, mut in (("tar 全空", m_all_tars_missing),
+                        ("只有旧版残留", m_stale_tars_only)):
+        tmp = tempfile.mkdtemp(prefix="upk-yellow-")
+        pkg = Path(tmp) / "upk"
+        shutil.copytree(PKG, pkg)
+        try:
+            mut(pkg)
+            code, out = run_checker(pkg)
+            if code != 0:
+                print(f"  ✗ {label}被判红灯（应判黄灯：tar 不入 git ⇒ 仓库/残留场景必然发生）")
+                failures.append(f"{label}被判红灯")
+            elif "为空" not in out and "没有本车" not in out:
+                print(f"  ✗ {label}未给黄灯提示")
+                failures.append(f"{label}未给黄灯提示")
+            else:
+                print(f"  ✓ {label}: 判黄灯且给出提示（不阻断 CI）")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     if failures:
         print(f"\n✗ {len(failures)} 条判据无效：")
