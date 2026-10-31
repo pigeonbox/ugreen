@@ -124,10 +124,26 @@ def check_embedded_tars(images: list[str]) -> None:
             if not tag:
                 continue
             want = f"pigeonbox-{img.split('/')[-1].split(':')[0]}-{tag.group(1)}.tar"
-            if want not in tars:
-                fail(f"{arch_dir}/images/ 里缺 {want}"
-                     f"（compose 引用了 {img} ⇒ 打包器按 tag 找 tar，缺了装不上）"
-                     f"；现有：{', '.join(tars) or '(空)'}")
+            if want in tars:
+                continue
+            # ⚠️ **缺 tar 与「有错版本 tar」要分开判**（2026-10-31 实测）：
+            #   镜像 tar **不入 git** ⇒ 仓库 checkout 里必然为空；
+            #   本地跑过导出脚本后，目录里会留下**上一版**的 tar（如 4.6.3），
+            #   而 compose 已随列车 bump 到 4.6.4 ⇒ 「缺 4.6.4 的 tar」是
+            #   **还没导出本车**（黄灯），不是「导出流程与 compose 漂移」（红灯）。
+            #   ⇒ 红灯只留给「目录里有 tar、且**恰好**是本车 tag 但命名对不上」
+            #     ——那才是真的错配。
+            others = [t for t in tars if t != want]
+            if others and all(re.search(r"pigeonbox-\w+-\d+\.\d+\.\d+\.tar$", t)
+                              for t in others):
+                warn(f"{arch_dir}/images/ 里没有本车（{tag.group(1)}）的 {want}"
+                     f"——现有的是旧版残留（{', '.join(others)}）"
+                     f"⇒ 还没导出本车镜像（跑 scripts/export_upk_images.py "
+                     f"--version {tag.group(1)}）")
+                continue
+            fail(f"{arch_dir}/images/ 里缺 {want}"
+                 f"（compose 引用了 {img} ⇒ 打包器按 tag 找 tar，缺了装不上）"
+                 f"；现有：{', '.join(tars) or '(空)'}")
 
 
 # ── R5: compose 变量必须是 project.yaml 已声明的 ────────────────────────
