@@ -2,3 +2,8 @@ dist/
 *.spk
 *.qpkg
 *.tgz
+
+# UPK 内嵌镜像 tar：由 CI 导出（scripts/export_upk_images.py）并作为 Release
+# 资产发布，**不入 git**（四个 tar 约 260MB ⇒ 入库会把仓库撑爆，
+# 且每次镜像更新都要产生一个巨大的二进制 diff）。
+upk/rootfs_*/images/*.tar
