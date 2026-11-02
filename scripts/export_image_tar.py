@@ -144,8 +144,22 @@ def split_image(image: str) -> tuple[str, str]:
 
 
 def export(image: str, tag: str, os_name: str, arch: str,
-           out: Path, base: str | None = None) -> None:
+           out: Path, base: str | None = None,
+           repo_tag: str | None = None) -> None:
+    """导出镜像 tar。
+
+    `repo_tag` = **写进 tar 的标签**（manifest.json 的 RepoTags）。
+    ⚠️ 为什么要与「拉取源」分开（2026-11-02 官方 ugcli 实测）：
+      官方**按 tar 内 RepoTags 匹配 compose 的 image 引用**（不是按文件名）
+      ⇒ compose 写 `docker.io/pigeonbox/server:4.7.1`（送审形态）时，
+        tar 就**必须**打这个标签，否则官方报
+        `missing image tar for service 'pigeonbox'` ⇒ 打包失败。
+      而镜像**字节**可以从 ghcr 拉（那边才有货）⇒ 拉取源与标签分离。
+      不传 `repo_tag` ⇒ 标签 = `<拉取源>:<tag>`（旧行为）。
+    """
     registry, repo = split_image(image)
+    label = repo_tag or f"{image}:{tag}"
+    label_repo = label.rsplit(":", 1)[0] if ":" in label else label
     tok = token_for(registry, repo, base)
     top = get_manifest(registry, repo, tag, tok, base)
     if "manifests" in top:
@@ -185,15 +199,16 @@ def export(image: str, tag: str, os_name: str, arch: str,
                     _add_bytes(tar, name, data)
                 layer_names.append(name)
             # manifest.json（docker save 的索引格式）
+            # ⚠️ RepoTags 写的是**标签**（label），不是拉取源 ⇒ 官方按它匹配 compose。
             manifest_json = [{
                 "Config": cfg_name,
-                "RepoTags": [f"{image}:{tag}"],
+                "RepoTags": [label],
                 "Layers": layer_names,
             }]
             _add_bytes(tar, "manifest.json",
                        json.dumps(manifest_json).encode("utf-8"))
             # repositories（老格式，docker load 兼容）
-            _add_bytes(tar, "repositories", json.dumps({image: {tag: image_digest}})
+            _add_bytes(tar, "repositories", json.dumps({label_repo: {tag: image_digest}})
                        .encode("utf-8"))
     except BaseException:
         # 半截产物留在磁盘上会让「有没有本车 tar」的判据误判 ⇒ 失败即清
@@ -207,6 +222,7 @@ def export(image: str, tag: str, os_name: str, arch: str,
 def export_with_wait(image: str, tag: str, os_name: str, arch: str,
                      out: Path, base: str | None = None,
                      wait_minutes: float = 0.0, retries: int = 3,
+                     repo_tag: str | None = None,
                      sleep=time.sleep, now=time.monotonic) -> int:
     """导出镜像 tar；镜像**尚未发布**时在预算内等待。
 
@@ -224,7 +240,7 @@ def export_with_wait(image: str, tag: str, os_name: str, arch: str,
     last: Exception | None = None
     while True:
         try:
-            export(image, tag, os_name, arch, out, base=base)
+            export(image, tag, os_name, arch, out, base=base, repo_tag=repo_tag)
             return 0
         except Exception as exc:
             last = exc
@@ -266,6 +282,11 @@ def main() -> int:
     ap.add_argument("--platform", required=True,
                     help="如 linux/amd64")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--repo-tag", default=None,
+                    help="写进 tar 的标签（manifest.json 的 RepoTags）。"
+                         "默认 = <--image>:<--tag>。官方 ugcli 按 RepoTags 匹配 "
+                         "compose 的 image 引用 ⇒ 送审形态（Docker Hub 引用）"
+                         "与拉取源（ghcr）不同时，用它把两者分开")
     ap.add_argument("--retries", type=int, default=3)
     ap.add_argument("--wait-minutes", type=float, default=0.0,
                     help="镜像尚未发布（manifest 404）时的等待预算（分钟）。"
@@ -280,7 +301,8 @@ def main() -> int:
     return export_with_wait(args.image, args.tag, os_name, arch, out,
                             base=args.base_url,
                             wait_minutes=args.wait_minutes,
-                            retries=args.retries)
+                            retries=args.retries,
+                            repo_tag=args.repo_tag)
 
 
 if __name__ == "__main__":

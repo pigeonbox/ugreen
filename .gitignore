@@ -7,3 +7,7 @@ dist/
 # 资产发布，**不入 git**（四个 tar 约 260MB ⇒ 入库会把仓库撑爆，
 # 且每次镜像更新都要产生一个巨大的二进制 diff）。
 upk/rootfs_*/images/*.tar
+
+# macOS Finder 的伴生文件：官方 ugcli 只允许 rootfs_<arch>/images/ 里放 tar
+# ⇒ .DS_Store 落在那儿会让**官方打包直接失败**（only tar files are allowed）。
+.DS_Store
