@@ -50,6 +50,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -88,25 +89,66 @@ def sha256_of(p: Path) -> str:
 
 
 def fetch_ugcli() -> Path:
-    """下载官方 ugcli 并校验 sha256（缓存复用）。"""
+    """下载官方 ugcli 并校验 sha256（缓存复用）。
+
+    ⚠️ **下载要有「总时限」**（2026-11-02 实测）：官方源在中国 CDN
+    （osswaf.ugnas.com），从 GitHub 的 runner 拉可能**极慢**
+    ⇒ urllib 的 socket timeout 只管「单次读写」，**管不了总时长**
+    ⇒ 慢速滴流下载能让这一步**挂几十分钟**、把 CI 拖成假死。
+    ⇒ 这里按**总时限**（默认 300s）读，**超时就明确失败**（而不是无声挂着）。
+    ⇒ CI 用 `actions/cache` 缓存 `~/.cache/ugcli` ⇒ 首次下载后每次复用。
+    """
     env_bin = os.environ.get("UGCLI_BIN")
     if env_bin:
         p = Path(env_bin)
         if not p.is_file():
             raise SystemExit(f"✗ UPK_UGCLI_BIN 指定的二进制不存在：{p}")
         return p
-    cache = Path(os.environ.get("UGCLI_CACHE",
-                                Path(tempfile.gettempdir()) / "ugcli-cache"))
+    cache = Path(os.environ.get("UGCLI_CACHE")
+                 or (Path.home() / ".cache" / "ugcli"))
     cache.mkdir(parents=True, exist_ok=True)
     dest = cache / f"ugcli-{UGCLI_VERSION}-linux-amd64"
     if dest.is_file() and sha256_of(dest) == UGCLI_SHA256:
         dest.chmod(0o755)
+        print(f"→ 复用缓存的官方 ugcli：{dest}")
         return dest
-    print(f"→ 下载官方 ugcli {UGCLI_VERSION} …")
+    budget = float(os.environ.get("UGCLI_DOWNLOAD_BUDGET", "600"))
+    attempts = int(os.environ.get("UGCLI_DOWNLOAD_ATTEMPTS", "2"))
     tmp = dest.with_suffix(".tmp")
-    with urllib.request.urlopen(UGCLI_URL, timeout=180) as r, tmp.open("wb") as f:
-        shutil.copyfileobj(r, f)
-    got = sha256_of(tmp)
+    last_err = ""
+    for attempt in range(1, attempts + 1):
+        print(f"→ 下载官方 ugcli {UGCLI_VERSION}"
+              f"（第 {attempt}/{attempts} 次，总时限 {budget:.0f}s）…", flush=True)
+        deadline = time.monotonic() + budget
+        try:
+            with urllib.request.urlopen(UGCLI_URL, timeout=60) as r, tmp.open("wb") as f:
+                got_bytes = 0
+                while True:
+                    chunk = r.read(1 << 16)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got_bytes += len(chunk)
+                    if got_bytes % (8 << 20) < (1 << 16):
+                        print(f"   …已下载 {got_bytes >> 20} MB"
+                              f"（剩余时限 {max(0.0, deadline - time.monotonic()):.0f}s）",
+                              flush=True)
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"下载超过总时限 {budget:.0f}s")
+            got = sha256_of(tmp)
+            break
+        except TimeoutError as exc:
+            last_err = f"超时（{exc}）"
+            print(f"   ⚠ {last_err}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            last_err = f"{type(exc).__name__}: {exc}"
+            print(f"   ⚠ 下载失败：{last_err}", flush=True)
+        tmp.unlink(missing_ok=True)
+    else:
+        raise SystemExit(f"✗ 官方 ugcli 下载失败（{last_err}）"
+                         f"（源 {UGCLI_URL} 极慢 ⇒ 本次判定不了；"
+                         f"CI 已配 actions/cache ⇒ 下次命中缓存即可）")
+
     if got != UGCLI_SHA256:
         tmp.unlink(missing_ok=True)
         raise SystemExit(f"✗ 官方 ugcli sha256 不匹配：期望 {UGCLI_SHA256}，实得 {got}"
