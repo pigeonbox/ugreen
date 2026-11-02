@@ -130,15 +130,40 @@ jobs:
           key: ugcli-v1.1.0.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/check_upk_official.py') }}
       - name: 官方 ugcli 打包（出 .upk）
         run: python3 scripts/check_upk_official.py --package dist/upk
+      # ⚠️ **官方产物散在两层目录**（2026-11-02 实测踩到）：
+      #    · .ugb 在 dist/upk/build_dir/com.pigeonbox.app.ugb
+      #    · .upk 在 dist/upk/build_dir/pkgs/upk/<arch>_com.pigeonbox.app_<ver>.upk
+      #    ⇒ 上传 glob 写 `build_dir/*.upk` **匹配不到** .upk；
+      #    ⇒ 而 upload-artifact 的规则是「多路径取**公共祖先**目录当根」
+      #      ⇒ 混着 dist/*.tar.gz 与 dist/upk/** 一起传时，artifact 根是 dist/
+      #      ⇒ 资产被埋进 `upk/build_dir/...` 子目录
+      #    ⇒ release job 的 `rel-upk/*.ugb` / `rel-upk/*.upk` **全部匹配不到**
+      #      （实测：待发布清单只剩 3 个文件，官方 .ugb/.upk **没进 Release**）。
+      # ⇒ 修法：统一**摊平**到**同一个目录**再上传 ⇒ artifact 根就是该目录
+      #    ⇒ 下载后全在顶层 ⇒ glob 必中；官方产物也一并进校验和。
+      - name: 摊平官方产物（.ugb/.upk 与骨架包同目录）
+        run: |
+          set -euo pipefail
+          OUT=dist/release-assets
+          rm -rf "$OUT"; mkdir -p "$OUT"
+          shopt -s nullglob
+          for f in dist/pigeonbox-ugreen-upk-*.tar.gz dist/pigeonbox-upk-images-*.tar.gz dist/SHA256SUMS-UPK; do
+            cp "$f" "$OUT"/
+          done
+          # 官方产物：两层目录都找（.ugb 在 build_dir/，.upk 在 build_dir/pkgs/upk/）
+          find dist/upk/build_dir -type f \( -name '*.ugb' -o -name '*.upk' \) -exec cp {} "$OUT"/ \;
+          if ! compgen -G "$OUT/*.ugb" >/dev/null || ! compgen -G "$OUT/*.upk" >/dev/null; then
+            echo "::error::官方 ugcli 产物（.ugb/.upk）没找齐 ⇒ 不发半成品"; exit 1
+          fi
+          # 官方产物也进校验和（用户从 Release 下载后可自验）
+          ( cd "$OUT" && sha256sum ./*.ugb ./*.upk >> SHA256SUMS-UPK )
+          ls -l "$OUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: upk-kit
-          path: |
-            dist/pigeonbox-ugreen-upk-*.tar.gz
-            dist/pigeonbox-upk-images-*.tar.gz
-            dist/SHA256SUMS-UPK
-            dist/upk/build_dir/*.ugb
-            dist/upk/build_dir/*.upk
+          # ⚠️ **必须传单个目录**：upload-artifact 对多路径取**公共祖先**当根
+          #    ⇒ 传多个目录/glob 会把资产埋进子目录，release job 的 glob 捞不到。
+          path: dist/release-assets/
           retention-days: 14
           if-no-files-found: error
 
@@ -174,10 +199,12 @@ jobs:
           # ⚠️ 用 nullglob：官方 ugcli 的产物扩展名随版本变（.ugb/.upk）⇒
           #    写死扩展名会在「该扩展名不存在」时把整个 upload 步骤搞挂。
           shopt -s nullglob
-          UPK_FILES=(rel-upk/pigeonbox-ugreen-upk-*.tar.gz \
-                     rel-upk/pigeonbox-upk-images-*.tar.gz \
-                     rel-upk/SHA256SUMS-UPK \
-                     rel-upk/*.ugb rel-upk/*.upk)
+          # 用 find 收集 artifact 里**全部**文件 ⇒ 不依赖 upload-artifact 怎么摆目录
+          # （它的「公共祖先当根」规则会把多路径资产埋进子目录 ⇒ 写死顶层 glob 会漏）
+          mapfile -t UPK_FILES < <(find rel-upk -type f | sort)
+          if [ ${#UPK_FILES[@]} -eq 0 ]; then
+            echo "::error::upk artifact 里没有文件 ⇒ 无资产可发"; exit 1
+          fi
           echo "待发布资产：${UPK_FILES[*]}"
           gh release upload "${VER}" "${UPK_FILES[@]}" \
             --repo "${GITHUB_REPOSITORY}" --clobber
