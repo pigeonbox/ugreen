@@ -46,8 +46,20 @@ jobs:
       #     （⚠️ check 对 3 类违规**放行**：default_value / ${VAR:-默认} /
       #      rootfs_common 多文件 ⇒ 只跑 check 等于没门禁）
       #   · 10 条变异必须**逐条被官方工具拒** ⇒ 证明门禁有牙齿
+      # 官方 ugcli 二进制缓存（15MB，从官方 CDN 拉）
+      # ⇒ 首次下载后每次复用 ⇒ 既省时间，也避开「CDN 慢 ⇒ CI 假死」。
+      # ⚠️ action 必须钉**上游真实存在**的 commit：钉到不存在的 SHA 时
+      #    runner 在 "Prepare all required actions" 阶段就失败
+      #    （`unable to resolve action ... unable to find version`），
+      #    表现为**整个 job 秒挂**，与代码无关但会把门禁彻底废掉。
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ugcli
+          key: ugcli-v1.1.0.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/check_upk_official.py') }}
       - name: 官方 ugcli 门禁（check + pack + 变异自证）
-        run: python3 scripts/check_upk_official.py
+        # ⚠️ 用 -u（行缓冲）⇒ 官方工具慢/挂时 CI 日志**能实时看到进度**
+        # （块缓冲会让日志在进程结束前全空 ⇒ 看着像「CI 卡死」）。
+        run: python3 -u scripts/check_upk_official.py
       # 共享小工具（compose 解析 + 镜像 tar 读写）的行为自测。
       # 这条是被一个真 bug 逼出来的：`swap_registry()` 把 tag 混进了仓库名
       # ⇒ registry 侧 scope 非法 ⇒ 导出全部 HTTP 403 ⇒ 只能靠真跑 260MB 导出才发现。

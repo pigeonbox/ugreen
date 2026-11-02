@@ -38,7 +38,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.version || github.ref_name }}
+          # ⚠️ **检出「触发来源」而不是「目标版本」**（2026-11-02 实测修的真缺陷）：
+          #   tag 推送  ⇒ github.ref_name = 那个 tag（如 v4.7.1）⇒ 检出 tag 内容 ✅
+          #   手动 dispatch ⇒ github.ref_name = 触发分支（main）⇒ 检出**当前代码** ✅
+          #   旧写法 `inputs.version || github.ref_name` 在 dispatch 时检出的是
+          #   **旧 tag 里的旧代码** ⇒ 「修了打包脚本后重跑旧版本补上」根本不可能
+          #   （实测：重跑 v4.7.1 ⇒ `python3: can't open file scripts/check_upk_official.py`）
+          #   ⇒ 与本工作流自己注释里写的「修复失败的发布…重跑即可补上」相矛盾。
+          #   要打的**版本**仍由 `inputs.version || github.ref_name` 决定（见下方断言）。
+          ref: ${{ github.ref_name }}
       - name: 版本一致性断言(VERSION 与 tag 对齐——错 tag/错内容拒发)
         run: |
           VER=${{ inputs.version || github.ref_name }}
@@ -83,7 +91,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.version || github.ref_name }}
+          # ⚠️ **检出「触发来源」而不是「目标版本」**（2026-11-02 实测修的真缺陷）：
+          #   tag 推送  ⇒ github.ref_name = 那个 tag（如 v4.7.1）⇒ 检出 tag 内容 ✅
+          #   手动 dispatch ⇒ github.ref_name = 触发分支（main）⇒ 检出**当前代码** ✅
+          #   旧写法 `inputs.version || github.ref_name` 在 dispatch 时检出的是
+          #   **旧 tag 里的旧代码** ⇒ 「修了打包脚本后重跑旧版本补上」根本不可能
+          #   （实测：重跑 v4.7.1 ⇒ `python3: can't open file scripts/check_upk_official.py`）
+          #   ⇒ 与本工作流自己注释里写的「修复失败的发布…重跑即可补上」相矛盾。
+          #   要打的**版本**仍由 `inputs.version || github.ref_name` 决定（见下方断言）。
+          ref: ${{ github.ref_name }}
       - name: 组装 UPK 骨架 + 导出内嵌镜像 tar
         env:
           # 送审用 Docker Hub；本地/CI 自检可用 ghcr.io。
@@ -105,6 +121,13 @@ jobs:
       #    产物（*.ugb/*.upk）随 Release 发布。
       # ⚠️ 打包失败 ⇒ 本 job 失败 ⇒ release/attach-to-hub 一律不发
       #    （needs: [build, upk]）⇒ **不会静默发布半成品**。
+      # 官方 ugcli 二进制缓存（15MB，从官方 CDN 拉；国内 CDN 极慢，
+      # 实测能让这一步挂十几分钟）⇒ 与 CI `lint` job **同一个 key**
+      # ⇒ main 分支 scope 的缓存可跨 workflow 复用 ⇒ 发版不必重新下载。
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ugcli
+          key: ugcli-v1.1.0.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/check_upk_official.py') }}
       - name: 官方 ugcli 打包（出 .upk）
         run: python3 scripts/check_upk_official.py --package dist/upk
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
