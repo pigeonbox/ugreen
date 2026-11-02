@@ -121,6 +121,13 @@ jobs:
       #    产物（*.ugb/*.upk）随 Release 发布。
       # ⚠️ 打包失败 ⇒ 本 job 失败 ⇒ release/attach-to-hub 一律不发
       #    （needs: [build, upk]）⇒ **不会静默发布半成品**。
+      # 官方 ugcli 二进制缓存（15MB，从官方 CDN 拉；国内 CDN 极慢，
+      # 实测能让这一步挂十几分钟）⇒ 与 CI `lint` job **同一个 key**
+      # ⇒ main 分支 scope 的缓存可跨 workflow 复用 ⇒ 发版不必重新下载。
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ugcli
+          key: ugcli-v1.1.0.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/check_upk_official.py') }}
       - name: 官方 ugcli 打包（出 .upk）
         run: python3 scripts/check_upk_official.py --package dist/upk
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
