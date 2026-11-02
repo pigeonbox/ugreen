@@ -35,6 +35,24 @@ jobs:
       # 否则上面那道门禁只是摆设。
       - name: UPK 校验器自测（变异测试）
         run: python3 scripts/check_upk_package_test.py
+      # ── 官方 ugcli 门禁（2026-11-02 新增）────────────────────────────
+      # 本仓此前的自研校验器只覆盖了官方硬约束的**一部分** ⇒ 骨架**官方
+      # ugcli 根本打不出来**（实测 6 处形态违规：icon.svg / .gitkeep /
+      # desc: / default_value / ${VAR:-默认} / RepoTags 对不上），而 CI 全绿
+      # ⇒ 缺陷一直藏着，直到真机安装才暴露。
+      # ⇒ 用**官方工具**判定（ubuntu-latest = Linux x86_64 ⇒ 官方只提供
+      #    linux-amd64 二进制，跑得动）：
+      #   · `ugcli check` + `ugcli pack` 都要过
+      #     （⚠️ check 对 3 类违规**放行**：default_value / ${VAR:-默认} /
+      #      rootfs_common 多文件 ⇒ 只跑 check 等于没门禁）
+      #   · 10 条变异必须**逐条被官方工具拒** ⇒ 证明门禁有牙齿
+      - name: 官方 ugcli 门禁（check + pack + 变异自证）
+        run: python3 scripts/check_upk_official.py
+      # 共享小工具（compose 解析 + 镜像 tar 读写）的行为自测。
+      # 这条是被一个真 bug 逼出来的：`swap_registry()` 把 tag 混进了仓库名
+      # ⇒ registry 侧 scope 非法 ⇒ 导出全部 HTTP 403 ⇒ 只能靠真跑 260MB 导出才发现。
+      - name: UPK 共享工具自测
+        run: python3 scripts/upk_common_test.py
       # 镜像导出脚本的「等待镜像发布」判据自测（2026-10-31 新增）。
       # 这条判据失效 ⇒ 4.6.4 那种「镜像还在推、upk job 已起跑」的竞态会静默复活
       # ⇒ UPK 产物出不来、而 Release 照发（部分交付）。

@@ -5,19 +5,22 @@
 #   dist/pigeonbox-ugreen-upk-<版本>.tar.gz   ← UPK 应用包骨架（ugcli pack 的输入）
 #   dist/pigeonbox-upk-images-<版本>.tar.gz    ← 内嵌镜像 tar 集合（可选单独发布）
 #   dist/SHA256SUMS-UPK
+#   dist/upk/                                ← 组装好的包目录（官方 ugcli pack 的输入）
 #
 # ⚠️ **本脚本产出的是「ugcli pack 的输入」，不是最终的 .upk**：
-#   官方 ugcli 必须在 **Linux** 上跑（保证 Unix 执行位），且 sideload 需
-#   设备开发者授权（ugdev.sig）⇒ 最终 .upk 的产出与上架是外部条件。
+#   官方 ugcli 必须在 **Linux** 上跑（保证 Unix 执行位）——**CI 的 ubuntu-latest
+#   就是那台 Linux 打包机**（issue #100 里「待 Linux 打包机」的前提不成立）
+#   ⇒ release 流水线里接着跑 `scripts/check_upk_official.py --package dist/upk`
+#   ⇒ 出真正的 .upk。sideload 需设备开发者授权（ugdev.sig）⇒ 仍是外部条件。
 #   本脚本把「能自动化的部分」全部做完：骨架组装 + 镜像 tar 导出 + 校验。
 #
-# 用法: ./scripts/build-upk.sh <版本>   例: ./scripts/build-upk.sh 4.6.3
+# 用法: ./scripts/build-upk.sh <版本>   例: ./scripts/build-upk.sh 4.7.1
 #       <版本> 必须与本仓 VERSION 一致（compose 的镜像 tag 依赖它）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
-VERSION="${1:?用法: build-upk.sh <版本>(例: 4.6.3)}"
+VERSION="${1:?用法: build-upk.sh <版本>(例: 4.7.1)}"
 
 # 版本一致性断言：与 VERSION 不符 ⇒ 拒绝（compose 的镜像 tag 与内嵌 tar
 # 都按 VERSION 钉，版本错了 ⇒ 打出来的包装不上）。
@@ -27,8 +30,8 @@ if [ "$REPO_VER" != "$VERSION" ]; then
   exit 1
 fi
 
+# **拉取源** registry（镜像字节从这儿拉；标签始终取 compose 的 image 引用）。
 REGISTRY="${UPK_REGISTRY:-ghcr.io}"
-NAMESPACE="${UPK_NAMESPACE:-pigeonbox}"
 # 镜像尚未发布时的等待预算（分钟）。
 # ⚠️ **CI 必须给足**：内嵌镜像 tar 来自 ghcr，而镜像是由 **另一个仓**
 #    （pigeonbox/server）的 release 流水线推的 ⇒ 两边并发、无 `needs:` 可排；
@@ -46,24 +49,75 @@ trap 'rc=$?; rm -rf "$STAGE"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "$OK" 
 OUT_DIR="$ROOT/dist"
 mkdir -p "$OUT_DIR"
 
-echo "== 1) 导出内嵌镜像 tar（$REGISTRY/${NAMESPACE}，版本 ${VERSION}，等待预算 ${WAIT_MINUTES} 分钟）=="
+echo "== 1) 导出内嵌镜像 tar（拉取源 ${REGISTRY}，版本 ${VERSION}，等待预算 ${WAIT_MINUTES} 分钟）=="
+# ⚠️ 标签与拉取源分离（官方 ugcli 按 tar 的 RepoTags 匹配 compose 的 image
+#    引用）⇒ 导出脚本**按 compose 里的 image 引用**打标签，不按拉取源。
 python3 scripts/export_upk_images.py \
-  --version "$VERSION" --registry "$REGISTRY" --namespace "$NAMESPACE" \
+  --version "$VERSION" --registry "$REGISTRY" \
   --wait-minutes "$WAIT_MINUTES"
 
 echo "== 2) 组装 UPK 骨架 =="
-PKG_STAGE="$STAGE/upk"
-mkdir -p "$PKG_STAGE"
-# project.yaml / rootfs_common 逐文件复制（不含 images/，那由导出脚本填）
-cp upk/project.yaml "$PKG_STAGE/"
-cp -r upk/rootfs_common "$PKG_STAGE/"
+# 组装目录留在 dist/ 下（gitignore 覆盖）⇒ 发布流水线可直接对它跑官方
+# `ugcli pack`（官方工具要求路径下就是包目录）。
+# ⚠️ 顶层目录名**必须叫 upk** ⇒ 打出来的 tar.gz 内部仍是 `upk/...`
+#    （与历史 Release 资产布局一致，别让下游解包脚本改口径）。
+PKG_STAGE="$OUT_DIR/upk"
+rm -rf "$PKG_STAGE"
+mkdir -p "$PKG_STAGE/rootfs_common"
+
+# project.yaml：复制 + **按 VERSION 改写 version 段**
+# ⚠️ 改写的原因：UPK 包版本（应用中心展示的版本）必须跟着产品版本走，
+#    而 project.yaml **不在列车物化清单里**（列车只改 VERSION 与
+#    upk/rootfs_common/docker-compose.yaml 的镜像 tag）⇒ 仓内文件会滞后。
+#    ⇒ 打包副本一律按仓 VERSION 改写 ⇒ 打出来的包版本永远对得上。
+#    改写用 sed 的**行首锚定**（`^version:`）⇒ 不会误伤 `spec_version:`。
+sed -E "s/^(version:[[:space:]]*).*/\1${VERSION}/" upk/project.yaml \
+  > "$PKG_STAGE/project.yaml"
+if ! grep -q "^version: ${VERSION}$" "$PKG_STAGE/project.yaml"; then
+  echo "改写后 project.yaml 的 version 不是 ${VERSION}（源文件里没有 version 段？）" >&2
+  exit 1
+fi
+
+# rootfs_common：**只**放官方允许的两个文件
+# ⚠️ 官方只允许 [icon.png, docker-compose.yaml] ⇒ 多一个文件就打包失败
+#    （实测：icon.svg ⇒ only [icon.png, docker-compose.yaml] are allowed）。
+#    ⇒ 这里逐个复制（不是整目录 cp -r）⇒ 仓库里万一又混进别的文件也不会带进包。
+cp upk/rootfs_common/docker-compose.yaml "$PKG_STAGE/rootfs_common/"
+cp upk/rootfs_common/icon.png "$PKG_STAGE/rootfs_common/"
+# 断言：rootfs_common 里恰好是这两个（官方 allow-list 的机械判定）
+EXTRA="$(ls -A "$PKG_STAGE/rootfs_common" | grep -v -x -e docker-compose.yaml -e icon.png || true)"
+if [ -n "$EXTRA" ]; then
+  echo "rootfs_common 里有多余文件：$EXTRA（官方只允许 icon.png + docker-compose.yaml）" >&2
+  exit 1
+fi
+
 for arch in amd64 arm64; do
   mkdir -p "$PKG_STAGE/rootfs_$arch/images"
-  cp upk/rootfs_$arch/images/*.tar "$PKG_STAGE/rootfs_$arch/images/" 2>/dev/null || true
+done
+
+# 只放**本车**的镜像 tar（compose 引用的那些）。
+# ⚠️ 2026-11-02 官方实测：images/ 里多一个 compose 不引用的 tar
+#    ⇒ 官方逐个校验时拒：`image 'ghcr.io/pigeonbox/frontend:4.6.4' not
+#    referenced in docker-compose.yaml` ⇒ **打包直接失败**。
+#    ⇒ 旧版残留（本地导出过上一版）绝不能进包。
+python3 -c "
+import pathlib, sys
+sys.path.insert(0, 'scripts')
+import upk_common as U
+sys.exit(U.stage_images(pathlib.Path('$PKG_STAGE'), pathlib.Path('upk'), '$VERSION'))
+"
+# 断言：images/ 里只能有 tar（官方 allow-list）
+for arch in amd64 arm64; do
+  BAD="$(ls -A "$PKG_STAGE/rootfs_$arch/images" | grep -v '\.tar$' || true)"
+  if [ -n "$BAD" ]; then
+    echo "rootfs_$arch/images/ 里有非 tar 文件：$BAD（官方只允许 tar）" >&2
+    exit 1
+  fi
 done
 
 echo "== 3) 校验组装的骨架（规则 + 镜像对应）=="
-python3 scripts/check_upk_package.py "$PKG_STAGE"
+# 严格模式：组装好的包必须**一个多余 tar 都没有**（官方会逐个校验）。
+python3 scripts/check_upk_package.py --strict "$PKG_STAGE"
 
 echo "== 4) 打包 =="
 UPK_TAR="$OUT_DIR/pigeonbox-ugreen-upk-${VERSION}.tar.gz"
@@ -76,7 +130,7 @@ UPK_TAR="$OUT_DIR/pigeonbox-ugreen-upk-${VERSION}.tar.gz"
 #   **恰好瞎在这一点上** ⇒ 自检通过、包却是坏的。
 #   ⇒ 建包时 COPYFILE_DISABLE=1；断言一律用**标准读取器**（python tarfile），
 #     与平台用标准库解包的视角一致。
-COPYFILE_DISABLE=1 tar -czf "$UPK_TAR" -C "$STAGE" upk
+COPYFILE_DISABLE=1 tar -czf "$UPK_TAR" -C "$OUT_DIR" upk
 # 镜像 tar 集合单独出一份（ugcli pack 需要它们在 rootfs_<arch>/images/ 下，
 # 这里额外给一份便于分发与校验）
 ( cd upk && COPYFILE_DISABLE=1 tar -czf "$OUT_DIR/pigeonbox-upk-images-${VERSION}.tar.gz" \
@@ -104,4 +158,5 @@ sha256sum pigeonbox-ugreen-upk-${VERSION}.tar.gz \
 cat SHA256SUMS-UPK
 ls -la "$OUT_DIR"
 echo "✓ UPK 组装完成：$UPK_TAR"
+echo "  ⇒ 下一步（CI 的 Linux runner 上）：python3 scripts/check_upk_official.py --package $PKG_STAGE"
 OK=1

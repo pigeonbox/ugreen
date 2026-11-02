@@ -6,6 +6,20 @@
 #    ⇒ scripts/check_upk_package.py 有一条规则专查这个（tag 与 VERSION 不符即红）。
 # ⚠️ 送审用 **Docker Hub** 镜像（TOS/UPK 应用商店只收 Docker Hub）：
 #    生态镜像线已双推 ghcr + Docker Hub ⇒ 这里的引用指向 Docker Hub。
+#
+# ⚠️ **官方 ugcli 的三条硬约束**（2026-11-02 用官方 ugcli v1.1.0.13 实测，
+#    详见 upk/README.md「官方口径实测」）：
+#   ① **变量必须写裸 ${VAR}**，不能写 ${VAR:-default}
+#      ⇒ 写 `:-` 形式时 `ugcli check` **放行**，但 `ugcli pack` 报
+#         `variables not set: PB_ADMIN_PASSWORD` ⇒ **打包直接失败**。
+#   ② **compose 的 image 引用必须与内嵌 tar 的 RepoTags 逐字相同**
+#      ⇒ 官方按 tar 里 manifest.json 的 RepoTags 匹配 compose（不是按文件名）
+#      ⇒ 不一致 ⇒ `missing image tar for service '<svc>'` ⇒ 打包失败。
+#      ⇒ 导出时由 scripts/export_upk_images.py **按本文件的 image 引用**打标签，
+#         拉取源（ghcr）与标签（Docker Hub）分开 ⇒ 两者天然一致。
+#   ③ **rootfs_common 只能有 icon.png 与 docker-compose.yaml**
+#      ⇒ 多一个文件（如 icon.svg）⇒ `only [icon.png, docker-compose.yaml]
+#         are allowed for docker app` ⇒ 打包失败。
 services:
   pigeonbox:
     image: docker.io/pigeonbox/server:4.7.1
@@ -19,7 +33,7 @@ services:
       #    且官方打包器强校验「compose 变量必须都在 project.yaml 声明」
       #    ⇒ 注入一个未声明的变量会让**打包直接失败**（2026-10-31 实测：
       #    check_upk_package.py 抓出这条）。
-      - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD:-}
+      - PB_ADMIN_PASSWORD=${PB_ADMIN_PASSWORD}
       - PB_USER_ALLOW_REGISTRATION=false
       - PB_REDIS_HOST=
     volumes:

@@ -97,6 +97,16 @@ jobs:
         run: |
           VER="${{ inputs.version || github.ref_name }}"
           ./scripts/build-upk.sh "${VER#v}"
+      # ── 官方 ugcli 打包：出**真正的 .upk**（2026-11-02 新增）────────────
+      # issue #100 里「待 Linux 打包机」的前提**不成立**：
+      # 官方只提供 **linux-amd64** 二进制（要保证 Unix 执行位 ⇒ 必须 Linux），
+      # 而 **ubuntu-latest 就是那台 Linux x86_64 打包机**。
+      # ⇒ 本 job 把「ugcli pack 的输入」（dist/upk）交给官方工具打包，
+      #    产物（*.ugb/*.upk）随 Release 发布。
+      # ⚠️ 打包失败 ⇒ 本 job 失败 ⇒ release/attach-to-hub 一律不发
+      #    （needs: [build, upk]）⇒ **不会静默发布半成品**。
+      - name: 官方 ugcli 打包（出 .upk）
+        run: python3 scripts/check_upk_official.py --package dist/upk
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: upk-kit
@@ -104,6 +114,8 @@ jobs:
             dist/pigeonbox-ugreen-upk-*.tar.gz
             dist/pigeonbox-upk-images-*.tar.gz
             dist/SHA256SUMS-UPK
+            dist/upk/build_dir/*.ugb
+            dist/upk/build_dir/*.upk
           retention-days: 14
           if-no-files-found: error
 
@@ -132,12 +144,19 @@ jobs:
           gh release view "${VER}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
             gh release create "${VER}" --repo "${GITHUB_REPOSITORY}" \
               --title "PigeonBox UGREEN UGOS Pro ${VER}" \
-              --notes "绿联 NAS(UGOS Pro)部署包(compose 项目一键粘贴,见 Assets)。解压后按《安装指引.md》操作:Docker → 项目 → 创建 → 粘贴 compose → 部署。含 ghcr 原版与国内加速版两份编排。UPK 应用中心形态的**骨架包**(内嵌镜像 tar,ugcli pack 的输入)见 Assets 中的 pigeonbox-ugreen-upk-*.tar.gz 与 SHA256SUMS-UPK。"
+              --notes "绿联 NAS(UGOS Pro)部署包(compose 项目一键粘贴,见 Assets)。解压后按《安装指引.md》操作:Docker → 项目 → 创建 → 粘贴 compose → 部署。含 ghcr 原版与国内加速版两份编排。UPK 应用中心形态见 Assets:① **官方 ugcli 产出的 UPK 应用包**(*.ugb/*.upk,可直接送审/sideload);② 骨架包 pigeonbox-ugreen-upk-*.tar.gz(内嵌镜像 tar,ugcli pack 的输入)与 SHA256SUMS-UPK。"
           gh release upload "${VER}" rel/*.zip --repo "${GITHUB_REPOSITORY}" --clobber
           # UPK 骨架包也要落到 Release 上——只放 CI artifact(保留 14 天)等于
           # **没发布**：用户从 Release 页面拿不到它。
-          gh release upload "${VER}" rel-upk/pigeonbox-ugreen-upk-*.tar.gz \
-            rel-upk/pigeonbox-upk-images-*.tar.gz rel-upk/SHA256SUMS-UPK \
+          # ⚠️ 用 nullglob：官方 ugcli 的产物扩展名随版本变（.ugb/.upk）⇒
+          #    写死扩展名会在「该扩展名不存在」时把整个 upload 步骤搞挂。
+          shopt -s nullglob
+          UPK_FILES=(rel-upk/pigeonbox-ugreen-upk-*.tar.gz \
+                     rel-upk/pigeonbox-upk-images-*.tar.gz \
+                     rel-upk/SHA256SUMS-UPK \
+                     rel-upk/*.ugb rel-upk/*.upk)
+          echo "待发布资产：${UPK_FILES[*]}"
+          gh release upload "${VER}" "${UPK_FILES[@]}" \
             --repo "${GITHUB_REPOSITORY}" --clobber
 
   attach-to-hub:

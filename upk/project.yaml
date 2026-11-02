@@ -1,10 +1,21 @@
-# ⚠️ 二期骨架(未经验证):绿联 UPK 应用包定义。
-# 字段以官方 developer.ugnas.com 文档与 `ugcli check` 输出为准;上架需邮件送审,
-# sideload 需设备开发者授权(ugdev.sig),流程见本目录 README.md。
-# CI 出包参考 KOLFlow 的 build-ugreen-upk.yml(官方 ugcli 打包,镜像 tar 内嵌)。
+# 绿联 UPK 应用包定义（形态以官方 ugcli 的实际输出为准，勿凭文档臆测）。
+#
+# ⚠️ **字段名是官方严格 yaml 解码的**（2026-11-02 用官方 ugcli v1.1.0.13 实测）：
+#   · 参数文案必须写 `i18n: {语言: {name, description}}`，每个语言都要有
+#     name + description；写 `desc:` ⇒ `ugcli check` 报
+#     `'parameters[0].i18n' is required`，`ugcli pack` 报
+#     `field desc not found in type project.ParamItem` ⇒ **打包失败**。
+#   · `default_value` **不是**官方 ParamItem 字段（和 `desc:` 一样被严格解码拒绝）
+#     ⇒ 参数的默认值只能由安装向导给，不能写在 project.yaml 里。
+#   · docker 应用必填 `depend_docker_version` + `depend_fw_version`，缺一个
+#     ⇒ `'depend_fw_version' is required` ⇒ 打包失败。
+# ⚠️ `version` 是 **UPK 应用包版本**（应用中心展示的版本），与镜像 tag 无关；
+#   仓内 `VERSION` 是**产品版本**，两者语义不同、取值不同，别混。
+#   列车物化清单**不含本文件** ⇒ 构建期由 `scripts/build-upk.sh` 按 VERSION
+#   改写成打包用的副本（改写后自检，见该脚本）。
 spec_version: "2.2"
 app_id: com.pigeonbox.app
-version: 1.14.0
+version: 4.7.1
 support_arch: [amd64, arm64]
 # Docker 应用:自动生成对 com.ugreen.docker 套件的 MustDepend 强依赖
 is_docker_app: true
@@ -20,23 +31,33 @@ parameters:
   - key: DATA_PATH
     type: path
     required: true
-    default_value: /volume1/docker/pigeonbox/data
-    desc:
-      zh-CN: 数据目录(SQLite 库+上传文件+JWT 密钥,备份它=备份全部)
-      en-US: Data directory (SQLite DB + uploads + JWT secret; back it up = back up everything)
+    i18n:
+      zh-CN:
+        name: 数据目录
+        description: 数据目录(SQLite 库+上传文件+JWT 密钥,备份它=备份全部)
+      en-US:
+        name: Data directory
+        description: Data directory (SQLite DB + uploads + JWT secret; back it up = back up everything)
   - key: PB_API_PORT
     type: number
     required: true
-    default_value: 12345
-    desc:
-      zh-CN: 对外端口(1024-65535)
-      en-US: Public port (1024-65535)
+    i18n:
+      zh-CN:
+        name: 对外端口
+        description: 对外端口(1024-65535)
+      en-US:
+        name: Public port
+        description: Public port (1024-65535)
   - key: PB_ADMIN_PASSWORD
     type: password
-    required: false
-    desc:
-      zh-CN: 管理员密码(留空=默认 admin123,装完请立即修改)
-      en-US: Admin password (blank = default admin123, change it after install)
+    required: true
+    i18n:
+      zh-CN:
+        name: 管理员密码
+        description: 管理员密码(生产模式必填,装完请立即修改)
+      en-US:
+        name: Admin password
+        description: Admin password (required in production mode; change it after install)
 i18n:
   zh-CN:
     name: PigeonBox 文件快递柜

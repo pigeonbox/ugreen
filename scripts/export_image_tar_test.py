@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -180,6 +181,35 @@ def run_export(base_url: str, wait_minutes: float, retries: int = 3):
         return p.returncode, merged, produced, time.monotonic() - t0
 
 
+def run_export_with_tag(base_url: str, repo_tag: str):
+    """带 `--repo-tag` 导出，并回读 tar 里的 RepoTags。
+
+    为什么要这条（2026-11-02 官方 ugcli 实测）：官方**按 tar 里 manifest.json
+    的 RepoTags 匹配 compose 的 image 引用** ⇒ 送审形态（Docker Hub 引用）
+    与拉取源（ghcr）不同时，必须能把**标签**与**拉取源**分开。
+    ⇒ 判据：传了 `--repo-tag` ⇒ tar 里的 RepoTags 必须是它，**不是**拉取源。
+    """
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")}
+    tmp = tempfile.mkdtemp(prefix="upk-export-tag-")
+    out = Path(tmp) / "img.tar"
+    p = subprocess.run(
+        [sys.executable, str(SCRIPT),
+         "--image", "ghcr.io/pigeonbox/server", "--tag", "9.9.9",
+         "--repo-tag", repo_tag,
+         "--platform", "linux/amd64", "--out", str(out),
+         "--wait-minutes", "0.5", "--retries", "2",
+         "--base-url", base_url],
+        capture_output=True, text=True, timeout=90, env=env)
+    merged = p.stdout + p.stderr
+    if p.returncode != 0 or not out.exists():
+        return p.returncode, merged, None, None
+    with tarfile.open(out, "r") as t:
+        manifest = json.loads(t.extractfile("manifest.json").read().decode())
+        repos = json.loads(t.extractfile("repositories").read().decode())
+    return p.returncode, merged, manifest, repos
+
+
 def main() -> int:
     failures = []
 
@@ -249,12 +279,35 @@ def main() -> int:
         else:
             print("  ✓ ④ 无等待预算 ⇒ 404 直接失败（旧行为不变）")
 
+    # ── ⑤ 标签与拉取源分离（--repo-tag）────────────────────────────────
+    #    官方按 tar 的 RepoTags 匹配 compose ⇒ 送审形态（Docker Hub 引用）
+    #    与拉取源（ghcr）不同时，标签必须能单独指定 ⇒ 否则 UPK 打包失败。
+    with FakeRegistry(fail_manifest_times=0, manifest_status=404) as reg:
+        label = "docker.io/pigeonbox/server:9.9.9"
+        code, out, manifest, repos = run_export_with_tag(reg.base_url, label)
+        if code != 0 or manifest is None:
+            failures.append(f"⑤ 带 --repo-tag 导出失败：exit={code}\n{out}")
+            print(f"  ✗ ⑤ 带 --repo-tag 导出失败：exit={code}")
+        else:
+            tags = [t for e in manifest for t in (e.get("RepoTags") or [])]
+            if tags != [label]:
+                failures.append(f"⑤ tar 的 RepoTags 是 {tags}，期望 [{label}]"
+                                f"（官方按 RepoTags 匹配 compose ⇒ 标签错了装不上）")
+                print(f"  ✗ ⑤ RepoTags 是 {tags}，期望 [{label}]")
+            elif "ghcr.io/pigeonbox/server" in (repos or {}):
+                failures.append(f"⑤ repositories 仍记着拉取源 ghcr.io：{repos}"
+                                f"（docker load 会按它命名 ⇒ 与 compose 引用不一致）")
+                print(f"  ✗ ⑤ repositories 仍记着拉取源：{repos}")
+            else:
+                print(f"  ✓ ⑤ --repo-tag 生效：tar 的 RepoTags = {tags}"
+                      f"（标签与拉取源分离）")
+
     if failures:
         print(f"\n✗ {len(failures)} 条判据无效：")
         for f in failures:
             print("   -", f)
         return 1
-    print("\n✓ 4 条判据全部有效（等待/放弃/不空等/基线）")
+    print("\n✓ 5 条判据全部有效（等待/放弃/不空等/基线/标签分离）")
     return 0
 
 
