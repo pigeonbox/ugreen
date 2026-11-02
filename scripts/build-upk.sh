@@ -87,7 +87,7 @@ cp upk/rootfs_common/icon.png "$PKG_STAGE/rootfs_common/"
 # 断言：rootfs_common 里恰好是这两个（官方 allow-list 的机械判定）
 EXTRA="$(ls -A "$PKG_STAGE/rootfs_common" | grep -v -x -e docker-compose.yaml -e icon.png || true)"
 if [ -n "$EXTRA" ]; then
-  echo "rootfs_common 里有多余文件：$EXTRA（官方只允许 icon.png + docker-compose.yaml）" >&2
+  echo "rootfs_common 里有多余文件：${EXTRA}（官方只允许 icon.png + docker-compose.yaml）" >&2
   exit 1
 fi
 
@@ -110,7 +110,7 @@ sys.exit(U.stage_images(pathlib.Path('$PKG_STAGE'), pathlib.Path('upk'), '$VERSI
 for arch in amd64 arm64; do
   BAD="$(ls -A "$PKG_STAGE/rootfs_$arch/images" | grep -v '\.tar$' || true)"
   if [ -n "$BAD" ]; then
-    echo "rootfs_$arch/images/ 里有非 tar 文件：$BAD（官方只允许 tar）" >&2
+    echo "rootfs_$arch/images/ 里有非 tar 文件：${BAD}（官方只允许 tar）" >&2
     exit 1
   fi
 done
