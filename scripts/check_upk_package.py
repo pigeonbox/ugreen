@@ -337,7 +337,17 @@ def check_layout() -> None:
     for arch in arches:
         d = PKG / f"rootfs_{arch}"
         if not d.is_dir():
-            fail(f"缺 {d.name}/（官方按 support_arch 逐个校验 ⇒ 打包报 {d.name} not exists）")
+            # ⚠️ 官方要求**包**里有 rootfs_<arch>，但它里面**只允许 images/**
+            #    （实测：放 .gitkeep ⇒ `only [images/] directory is allowed`）
+            #    ⇒ 目录没法用占位文件跟踪 ⇒ git 里**没有**这两个目录
+            #    （由导出/组装脚本 mkdir 出来）。
+            #    ⇒ 校验仓内骨架时判**黄灯**；校验组装好的包时判**红灯**。
+            msg = (f"缺 {d.name}/（官方要求包里有它、且里面只能有 images/；"
+                   f"它由导出/组装脚本创建 ⇒ 还没导出本车镜像）")
+            if STRICT:
+                fail(msg + "（官方 ⇒ 打包报 " + d.name + " not exists）")
+            else:
+                warn(msg)
             continue
         images = d / "images"
         if not images.is_dir():

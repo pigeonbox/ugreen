@@ -29,9 +29,12 @@ from upk_common import (  # noqa: E402
 )
 
 
-def run_checker(pkg_dir: Path) -> tuple[int, str]:
-    p = subprocess.run([sys.executable, str(CHECKER), str(pkg_dir)],
-                       capture_output=True, text=True, timeout=120)
+def run_checker(pkg_dir: Path, strict: bool = False) -> tuple[int, str]:
+    cmd = [sys.executable, str(CHECKER)]
+    if strict:
+        cmd.append("--strict")
+    cmd.append(str(pkg_dir))
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     return p.returncode, (p.stdout + p.stderr)
 
 
@@ -257,25 +260,47 @@ def m_arch_mismatch(pkg: Path) -> None:
     stage_tars(pkg, arch_of={"amd64": "arm64", "arm64": "amd64"})
 
 
+def m_extra_tar(pkg: Path) -> None:
+    """images/ 里多一个 compose **不引用**的 tar（旧版残留）。
+
+    ⚠️ 官方 ugcli **逐个校验**每个 tar ⇒ 多余的 tar ⇒
+    `image '...' not referenced in docker-compose.yaml` ⇒ 打包直接失败
+    ⇒ 组装好的包（严格模式）必须判红。
+    """
+    ct = read(pkg / "rootfs_common" / "docker-compose.yaml")
+    for svc, ref in compose_images(ct):
+        name = image_name(ref)
+        make_image_tar(pkg / "rootfs_amd64" / "images" / f"pigeonbox-{name}-0.0.1.tar",
+                       [f"docker.io/pigeonbox/{name}:0.0.1"], "amd64")
+        break
+
+
+def m_missing_arch_dir(pkg: Path) -> None:
+    """组装好的包里缺 rootfs_<arch>/（官方 ⇒ 打包报 not exists）。"""
+    shutil.rmtree(pkg / "rootfs_arm64")
+
+
 CASES = [
-    ("镜像源是 ghcr.io（应用中心拒收）", m_ghcr_image, "Docker Hub"),
-    ("镜像源是 quay.io（应用中心拒收）", m_quay_image, "Docker Hub"),
-    ("镜像用 :latest", m_latest_tag, "latest"),
-    ("镜像 tag 与 VERSION 漂移", m_version_drift, "VERSION"),
-    ("compose 用未声明变量", m_undeclared_var, "未在 project.yaml"),
-    ("privileged: true", m_privileged, "privileged"),
-    ("network_mode: host", m_host_network, "network_mode"),
-    ("project.yaml 缺 app_id", m_missing_appid, "app_id"),
-    ("project.yaml 的 port 越界", m_bad_port, "port"),
-    ("内嵌 tar 对不上 compose", m_missing_tar, "缺"),
-    ("rootfs_common 多官方不允许的文件", m_extra_common_file, "rootfs_common"),
-    ("images/ 里混入非 tar", m_non_tar_in_images, "tar"),
-    ("参数用 desc: 而非 i18n", m_param_desc_form, "i18n"),
-    ("参数带 default_value", m_param_default_value, "default_value"),
-    ("缺 depend_fw_version", m_missing_depend, "depend_fw_version"),
-    ("compose 变量写成 ${VAR:-默认值}", m_compose_default_value, "裸"),
-    ("内嵌 tar 的 RepoTags 与 compose 不一致", m_repo_tag_mismatch, "RepoTags"),
-    ("内嵌 tar 架构与目录不符", m_arch_mismatch, "架构"),
+    ("镜像源是 ghcr.io（应用中心拒收）", m_ghcr_image, "Docker Hub", False),
+    ("镜像源是 quay.io（应用中心拒收）", m_quay_image, "Docker Hub", False),
+    ("镜像用 :latest", m_latest_tag, "latest", False),
+    ("镜像 tag 与 VERSION 漂移", m_version_drift, "VERSION", False),
+    ("compose 用未声明变量", m_undeclared_var, "未在 project.yaml", False),
+    ("privileged: true", m_privileged, "privileged", False),
+    ("network_mode: host", m_host_network, "network_mode", False),
+    ("project.yaml 缺 app_id", m_missing_appid, "app_id", False),
+    ("project.yaml 的 port 越界", m_bad_port, "port", False),
+    ("内嵌 tar 对不上 compose", m_missing_tar, "缺", False),
+    ("rootfs_common 多官方不允许的文件", m_extra_common_file, "rootfs_common", False),
+    ("images/ 里混入非 tar", m_non_tar_in_images, "tar", False),
+    ("参数用 desc: 而非 i18n", m_param_desc_form, "i18n", False),
+    ("参数带 default_value", m_param_default_value, "default_value", False),
+    ("缺 depend_fw_version", m_missing_depend, "depend_fw_version", False),
+    ("compose 变量写成 ${VAR:-默认值}", m_compose_default_value, "裸", False),
+    ("内嵌 tar 的 RepoTags 与 compose 不一致", m_repo_tag_mismatch, "RepoTags", False),
+    ("内嵌 tar 架构与目录不符", m_arch_mismatch, "架构", False),
+    ("组装包里混入 compose 不引用的 tar", m_extra_tar, "not referenced", True),
+    ("组装包里缺 rootfs_<arch>/", m_missing_arch_dir, "not exists", True),
 ]
 
 
@@ -289,7 +314,7 @@ def main() -> int:
     print("✓ 基线：当前 upk/ 规则全绿")
 
     failures = []
-    for name, mutate, keyword in CASES:
+    for name, mutate, keyword, strict in CASES:
         tmp = tempfile.mkdtemp(prefix="upk-mut-")
         pkg = Path(tmp) / "upk"
         shutil.copytree(PKG, pkg)
@@ -298,7 +323,7 @@ def main() -> int:
             # 状态，变异才能证明「是这条违规让它转红」。
             stage_tars(pkg)
             mutate(pkg)
-            code, out = run_checker(pkg)
+            code, out = run_checker(pkg, strict=strict)
             if code == 0:
                 failures.append(f"{name}: 变异后仍报绿（该规则判据无效）")
                 print(f"  ✗ {name}: 变异后仍报绿")
