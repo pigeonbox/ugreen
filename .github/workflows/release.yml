@@ -124,7 +124,7 @@ jobs:
       # 官方 ugcli 二进制缓存（15MB，从官方 CDN 拉；国内 CDN 极慢，
       # 实测能让这一步挂十几分钟）⇒ 与 CI `lint` job **同一个 key**
       # ⇒ main 分支 scope 的缓存可跨 workflow 复用 ⇒ 发版不必重新下载。
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ugcli
           key: ugcli-v1.1.0.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/check_upk_official.py') }}
