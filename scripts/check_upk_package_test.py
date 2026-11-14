@@ -280,6 +280,37 @@ def m_missing_arch_dir(pkg: Path) -> None:
     shutil.rmtree(pkg / "rootfs_arm64")
 
 
+# ── 2026-11-14：ugreen#155/#157（体积上限 + 日志上限）──────────────────
+def m_body_size_1024(pkg: Path) -> None:
+    """CLIENT_MAX_BODY_SIZE 抬回 1024m（#155 的原始缺陷形态）。"""
+    f = pkg / "rootfs_common" / "docker-compose.yaml"
+    s = read(f)
+    s2 = re.sub(r"(CLIENT_MAX_BODY_SIZE=)\d+[kKmMgG]?", r"\g<1>1024m", s, count=1)
+    if s2 == s:
+        raise AssertionError("m_body_size_1024 变异未生效：compose 里没有 CLIENT_MAX_BODY_SIZE")
+    write(f, s2)
+
+
+def m_missing_body_size(pkg: Path) -> None:
+    """删掉 CLIENT_MAX_BODY_SIZE 声明（nginx 回落默认 1m）。"""
+    f = pkg / "rootfs_common" / "docker-compose.yaml"
+    s = read(f)
+    s2 = re.sub(r"(?m)^.*CLIENT_MAX_BODY_SIZE=.*\n", "", s)
+    if s2 == s:
+        raise AssertionError("m_missing_body_size 变异未生效：compose 里没有 CLIENT_MAX_BODY_SIZE")
+    write(f, s2)
+
+
+def m_no_logging(pkg: Path) -> None:
+    """删掉第一个服务的 logging 段（#157 的原始缺陷形态）。"""
+    f = pkg / "rootfs_common" / "docker-compose.yaml"
+    s = read(f)
+    s2 = re.sub(r"\n    logging:\n(?:      [^\n]*\n)+", "\n", s, count=1)
+    if s2 == s:
+        raise AssertionError("m_no_logging 变异未生效：compose 里没有 logging 段")
+    write(f, s2)
+
+
 CASES = [
     ("镜像源是 ghcr.io（应用中心拒收）", m_ghcr_image, "Docker Hub", False),
     ("镜像源是 quay.io（应用中心拒收）", m_quay_image, "Docker Hub", False),
@@ -301,6 +332,9 @@ CASES = [
     ("内嵌 tar 架构与目录不符", m_arch_mismatch, "架构", False),
     ("组装包里混入 compose 不引用的 tar", m_extra_tar, "not referenced", True),
     ("组装包里缺 rootfs_<arch>/", m_missing_arch_dir, "not exists", True),
+    ("CLIENT_MAX_BODY_SIZE 抬回 1024m", m_body_size_1024, "1024m", False),
+    ("缺 CLIENT_MAX_BODY_SIZE 声明", m_missing_body_size, "CLIENT_MAX_BODY_SIZE", False),
+    ("服务缺 logging 段", m_no_logging, "logging", False),
 ]
 
 
