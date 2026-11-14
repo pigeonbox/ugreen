@@ -34,6 +34,12 @@
       （官方按 tar 里 manifest.json 的 RepoTags 匹配 compose，不是按文件名）
   R13 内嵌 tar 的镜像架构必须与所在 rootfs_<arch> 一致
       （官方：`image architecture mismatch (expected: amd64, actual: arm64)`）
+  R14 compose 必须声明 CLIENT_MAX_BODY_SIZE 且 ≥ 8192m（2026-11-14，ugreen#155）
+      （nginx 物理防线低于生态口径 ⇒ >8GiB 上传必 413 而 UI 宣称可传；
+        2026-10-23 413 事故同类；ugcli 只允许裸变量 ⇒ 只能写死）
+  R15 每个服务都要有 logging 日志上限（json-file / max-size / max-file）（ugreen#157）
+      （docker 默认 json-file 无上限 ⇒ 长期运行占满 UGOS 系统盘；
+        参数对照仓根 deploy/compose.yml）
 
 当前规则（黄灯）
   Y1  rootfs_<arch>/images/ 为空（镜像 tar 未导出 ⇒ 还不能产出可提交包）
@@ -290,6 +296,88 @@ def check_hardening() -> None:
         fail("compose 出现 privileged: true（官方打包器禁）")
     if re.search(r"^\s*network_mode\s*:\s*host", code, re.M):
         fail("compose 出现 network_mode: host（官方打包器禁）")
+
+
+# ── R14/R15: 反代体积上限 + 日志上限（2026-11-14，ugreen#155/#157）──────
+def _service_blocks(text: str) -> dict[str, str]:
+    """按行切出 services: 下每个服务的块文本（顶层键=服务名，缩进 4+ 归属其下）。
+
+    零依赖行解析（与本仓其它判据同风格）；整行注释剔除。
+    """
+    blocks: dict[str, list[str]] = {}
+    cur: str | None = None
+    in_services = False
+    for raw in text.splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if not in_services:
+            if s == "services:":
+                in_services = True
+            continue
+        if indent == 0:
+            in_services = False
+            cur = None
+            continue
+        if indent == 2:
+            cur = s.split(":", 1)[0]
+            blocks[cur] = []
+            continue
+        if cur is not None and indent >= 4:
+            blocks[cur].append(raw)
+    return {k: "\n".join(v) for k, v in blocks.items()}
+
+
+def check_body_size() -> None:
+    """R14: CLIENT_MAX_BODY_SIZE 必须存在且 ≥ 8192m（ugreen#155）。
+
+    写死 1024m 的旧值 = 服务端 4GiB 业务上限的 1/4 ⇒ nginx 先拒成 413、
+    业务上限形同虚设（2026-10-23 真机事故同类复发点）。
+    """
+    comp = PKG / "rootfs_common" / "docker-compose.yaml"
+    if not comp.is_file():
+        return
+    text = read(comp)
+    seen = False
+    for lineno, raw in compose_code_lines(text):
+        m = re.search(r"CLIENT_MAX_BODY_SIZE=([0-9]+)([kKmMgG])?", raw)
+        if not m:
+            continue
+        seen = True
+        unit = (m.group(2) or "").lower()
+        mult = {"": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}[unit]
+        if int(m.group(1)) * mult < 8192 * 1024 * 1024:
+            fail(f"compose 第 {lineno} 行：CLIENT_MAX_BODY_SIZE="
+                 f"{m.group(1)}{m.group(2) or ''} < 8192m"
+                 f"（nginx 物理防线低于生态口径 ⇒ 大文件上传必 413 而 UI 宣称可传；"
+                 f"2026-10-23 事故同类，ugreen#155）")
+    if not seen:
+        fail("compose 缺 CLIENT_MAX_BODY_SIZE 声明"
+             "（nginx 默认 client_max_body_size=1m ⇒ 上传几乎必 413，ugreen#155）")
+
+
+def check_logging_caps() -> None:
+    """R15: 每个服务都要有 logging 日志上限（ugreen#157）。
+
+    参数与仓根 deploy/compose.yml 对照（json-file / max-size / max-file）。
+    """
+    comp = PKG / "rootfs_common" / "docker-compose.yaml"
+    if not comp.is_file():
+        return
+    text = read(comp)
+    blocks = _service_blocks(text)
+    if not blocks:
+        return
+    for name, body in blocks.items():
+        if not re.search(r"(?m)^\s+logging\s*:", body):
+            fail(f"服务 {name} 缺 logging 段"
+                 f"（docker 默认 json-file 无上限 ⇒ 占满 UGOS 系统盘，ugreen#157）")
+            continue
+        if not re.search(r"(?m)^\s+max-size\s*:", body):
+            fail(f"服务 {name} 的 logging 缺 max-size（无上限等于没限，ugreen#157）")
+        if not re.search(r"(?m)^\s+max-file\s*:", body):
+            fail(f"服务 {name} 的 logging 缺 max-file（无上限等于没限，ugreen#157）")
 
 
 # ── R7: project.yaml 必填字段 ───────────────────────────────────────────
@@ -549,6 +637,8 @@ def main() -> int:
     check_variables()
     check_variable_form()
     check_hardening()
+    check_body_size()
+    check_logging_caps()
     check_project_yaml()
     check_project_official()
     check_layout()

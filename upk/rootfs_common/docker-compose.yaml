@@ -45,6 +45,13 @@ services:
       timeout: 3s
       start_period: 15s
       retries: 5
+    # 日志上限:docker 默认 json-file 驱动无上限 ⇒ 长期运行+大流量会占满 UGOS
+    # 系统盘。参数与仓根 deploy/compose.yml 对照(ugreen#157)。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     image: docker.io/pigeonbox/frontend:5.8.0
@@ -55,7 +62,10 @@ services:
       - TZ=${TZ}
       - BACKEND_HOST=pigeonbox
       - BACKEND_PORT=12345
-      - CLIENT_MAX_BODY_SIZE=1024m
+      # nginx 反代体积上限=物理防线(≥ 服务端 upload.max_file_size,否则 nginx 先拒
+      # 413 而 UI 宣称可传——2026-10-23 事故同类)。ugcli 只允许裸变量 ⇒ 写死 8192m,
+      # 与全生态口径一致(ugreen#155;hub 门禁的大写裸形态补扫在 hub 侧单)。
+      - CLIENT_MAX_BODY_SIZE=8192m
     depends_on:
       pigeonbox:
         condition: service_healthy
@@ -66,3 +76,9 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+    # 日志上限:同 pigeonbox 服务(ugreen#157)。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
