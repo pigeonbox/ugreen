@@ -384,11 +384,13 @@ def check_logging_caps() -> None:
 
 
 def check_cap_drop() -> None:
-    """R16: 每个服务都要 cap_drop: [ALL] 全量降权（hub#362）。
+    """R16: 每个服务都要 cap_drop: [ALL] 全量降权，且不得用 cap_add 回加（hub#362）。
 
     docker 默认保留全量 capabilities（即便以非 root 运行）；与 K8s 面
     server/frontend/redis/p2p 的 drop: ALL 对齐——K8s 面已收紧、容器编排面
     没跟上属于基线未拉齐。两个服务端口均 >1024 ⇒ 无需 NET_BIND_SERVICE。
+    `cap_drop: [ALL, NET_RAW]` / `cap_add:` 都不算全量降权（等于又加回来），
+    ⇒ 只接受恰好 `[ALL]`。
     """
     comp = PKG / "rootfs_common" / "docker-compose.yaml"
     if not comp.is_file():
@@ -398,11 +400,19 @@ def check_cap_drop() -> None:
     if not blocks:
         return
     for name, body in blocks.items():
-        cap_lines = [l for l in body.splitlines()
-                     if re.match(r"^\s+cap_drop\s*:", l)]
-        if not cap_lines or not any(re.search(r"\bALL\b", l) for l in cap_lines):
+        lines = body.splitlines()
+        cap_lines = [l for l in lines if re.match(r"^\s+cap_drop\s*:", l)]
+        if not cap_lines:
             fail(f"服务 {name} 缺 cap_drop: [ALL]"
                  f"（hub#362：容器编排面与 K8s 面 drop: ALL 对齐）")
+            continue
+        value = cap_lines[0].split(":", 1)[1].strip()
+        if not re.fullmatch(r"\[\s*[\"']?ALL[\"']?\s*\]", value):
+            fail(f"服务 {name} 的 cap_drop 必须是 [ALL]（当前 {value!r}；"
+                 f"hub#362：多留任何 capability 都不算全量降权）")
+        if any(re.match(r"^\s+cap_add\s*:", l) for l in lines):
+            fail(f"服务 {name} 用了 cap_add 回加能力（hub#362：必须全量降权，"
+                 f"确有依赖请先在 issue 里说明最小集合）")
 
 
 # ── R7: project.yaml 必填字段 ───────────────────────────────────────────

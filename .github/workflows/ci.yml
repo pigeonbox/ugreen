@@ -104,8 +104,43 @@ jobs:
               fi
             done
           fi
-          gh api "repos/pigeonbox/pigeonbox/contents/deploy/nas/sync.sh?ref=$REF" --jq .content | base64 -d > /tmp/nas-sync.sh
-          PB_NAS_TEMPLATE_REF="$REF" bash /tmp/nas-sync.sh check --platform ugreen --dir .
+          # ── 模板先行窗口 pin（pigeonbox#362）────────────────────────────
+          # hub 模板已合入、但发布 tag 尚未重新切出时（本次 cap_drop 即此形态），
+          # 物化件按 .github/nas-template-ref 钉住的**不可变 hub commit** 校验。
+          # 判定保留「发布 tag/分支模板」回落 ⇒ 下趟列车 sync 后实际内容匹配新
+          # tag，pin 自然失效（可留待列车清理，不会把仓永久钉在旧模板）。
+          PIN=""
+          if [ -f .github/nas-template-ref ]; then
+            PIN="$(grep -v '^[[:space:]]*#' .github/nas-template-ref | tr -d '[:space:]')"
+            if ! printf '%s' "$PIN" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "✗ .github/nas-template-ref 必须恰好是 40 位 hub commit SHA" >&2
+              exit 1
+            fi
+          fi
+          # 列车分支窗口以列车模板为准，不读 pin（避免 pin 与列车模板互相打架）。
+          case "$REF" in train/*) PIN="" ;; esac
+          run_check() {
+            local ref="$1"
+            gh api "repos/pigeonbox/pigeonbox/contents/deploy/nas/sync.sh?ref=${ref}" \
+              --jq .content | base64 -d > /tmp/nas-sync-check.sh || return 1
+            PB_NAS_TEMPLATE_REF="$ref" bash /tmp/nas-sync-check.sh check \
+              --platform ugreen --dir .
+          }
+          if [ -n "$PIN" ] && [ "$PIN" != "$REF" ]; then
+            if run_check "$PIN" > /tmp/nas-sync-pin.log 2>&1; then
+              cat /tmp/nas-sync-pin.log
+              echo "✓ 共享资产与 hub 模板一致（pin ${PIN}）"
+              exit 0
+            fi
+            echo "· pin ${PIN} 未匹配（下趟列车后属正常），回落到 ${REF} 校验"
+          fi
+          if ! run_check "$REF"; then
+            if [ -s /tmp/nas-sync-pin.log ]; then
+              echo "── pin 模板差异（诊断）──"
+              cat /tmp/nas-sync-pin.log
+            fi
+            exit 1
+          fi
 
   build:
     runs-on: ubuntu-latest
