@@ -311,6 +311,16 @@ def m_no_logging(pkg: Path) -> None:
     write(f, s2)
 
 
+def m_no_cap_drop(pkg: Path) -> None:
+    """删掉第一个服务的 cap_drop（hub#362 的原始缺陷形态）。"""
+    f = pkg / "rootfs_common" / "docker-compose.yaml"
+    s = read(f)
+    s2 = re.sub(r"\n    cap_drop: \[ALL\]\n", "\n", s, count=1)
+    if s2 == s:
+        raise AssertionError("m_no_cap_drop 变异未生效：compose 里没有 cap_drop")
+    write(f, s2)
+
+
 CASES = [
     ("镜像源是 ghcr.io（应用中心拒收）", m_ghcr_image, "Docker Hub", False),
     ("镜像源是 quay.io（应用中心拒收）", m_quay_image, "Docker Hub", False),
@@ -335,6 +345,7 @@ CASES = [
     ("CLIENT_MAX_BODY_SIZE 抬回 1024m", m_body_size_1024, "1024m", False),
     ("缺 CLIENT_MAX_BODY_SIZE 声明", m_missing_body_size, "CLIENT_MAX_BODY_SIZE", False),
     ("服务缺 logging 段", m_no_logging, "logging", False),
+    ("服务缺 cap_drop", m_no_cap_drop, "cap_drop", False),
 ]
 
 
