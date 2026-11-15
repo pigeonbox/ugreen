@@ -40,6 +40,9 @@
   R15 每个服务都要有 logging 日志上限（json-file / max-size / max-file）（ugreen#157）
       （docker 默认 json-file 无上限 ⇒ 长期运行占满 UGOS 系统盘；
         参数对照仓根 deploy/compose.yml）
+  R16 每个服务都要 cap_drop: [ALL] 全量降权（hub#362）
+      （docker 默认保留全量 capabilities，即便非 root 运行；端口 >1024 ⇒ 无需
+        NET_BIND_SERVICE，镜像无 ping/原始套接字需求 ⇒ 与 K8s 面 drop: ALL 对齐）
 
 当前规则（黄灯）
   Y1  rootfs_<arch>/images/ 为空（镜像 tar 未导出 ⇒ 还不能产出可提交包）
@@ -380,6 +383,28 @@ def check_logging_caps() -> None:
             fail(f"服务 {name} 的 logging 缺 max-file（无上限等于没限，ugreen#157）")
 
 
+def check_cap_drop() -> None:
+    """R16: 每个服务都要 cap_drop: [ALL] 全量降权（hub#362）。
+
+    docker 默认保留全量 capabilities（即便以非 root 运行）；与 K8s 面
+    server/frontend/redis/p2p 的 drop: ALL 对齐——K8s 面已收紧、容器编排面
+    没跟上属于基线未拉齐。两个服务端口均 >1024 ⇒ 无需 NET_BIND_SERVICE。
+    """
+    comp = PKG / "rootfs_common" / "docker-compose.yaml"
+    if not comp.is_file():
+        return
+    text = read(comp)
+    blocks = _service_blocks(text)
+    if not blocks:
+        return
+    for name, body in blocks.items():
+        cap_lines = [l for l in body.splitlines()
+                     if re.match(r"^\s+cap_drop\s*:", l)]
+        if not cap_lines or not any(re.search(r"\bALL\b", l) for l in cap_lines):
+            fail(f"服务 {name} 缺 cap_drop: [ALL]"
+                 f"（hub#362：容器编排面与 K8s 面 drop: ALL 对齐）")
+
+
 # ── R7: project.yaml 必填字段 ───────────────────────────────────────────
 def check_project_yaml() -> None:
     py = PKG / "project.yaml"
@@ -639,6 +664,7 @@ def main() -> int:
     check_hardening()
     check_body_size()
     check_logging_caps()
+    check_cap_drop()
     check_project_yaml()
     check_project_official()
     check_layout()
