@@ -321,6 +321,28 @@ def m_no_cap_drop(pkg: Path) -> None:
     write(f, s2)
 
 
+def m_cap_drop_not_all(pkg: Path) -> None:
+    """把 cap_drop 从 [ALL] 改成只降一个非 ALL 能力（必须仍判红）。"""
+    f = pkg / "rootfs_common" / "docker-compose.yaml"
+    s = read(f)
+    s2 = s.replace("cap_drop: [ALL]", "cap_drop: [NET_BIND_SERVICE]", 1)
+    if s2 == s:
+        raise AssertionError(
+            "m_cap_drop_not_all 变异未生效：compose 里没有 cap_drop: [ALL]")
+    write(f, s2)
+
+
+def m_cap_add(pkg: Path) -> None:
+    """cap_drop: [ALL] 之后又 cap_add 回加 NET_RAW（必须判红）。"""
+    f = pkg / "rootfs_common" / "docker-compose.yaml"
+    s = read(f)
+    s2 = s.replace("    cap_drop: [ALL]\n",
+                   "    cap_drop: [ALL]\n    cap_add: [NET_RAW]\n", 1)
+    if s2 == s:
+        raise AssertionError("m_cap_add 变异未生效：compose 里没有 cap_drop: [ALL]")
+    write(f, s2)
+
+
 CASES = [
     ("镜像源是 ghcr.io（应用中心拒收）", m_ghcr_image, "Docker Hub", False),
     ("镜像源是 quay.io（应用中心拒收）", m_quay_image, "Docker Hub", False),
@@ -346,6 +368,8 @@ CASES = [
     ("缺 CLIENT_MAX_BODY_SIZE 声明", m_missing_body_size, "CLIENT_MAX_BODY_SIZE", False),
     ("服务缺 logging 段", m_no_logging, "logging", False),
     ("服务缺 cap_drop", m_no_cap_drop, "cap_drop", False),
+    ("cap_drop 未全量（只降 NET_BIND_SERVICE）", m_cap_drop_not_all, "cap_drop", False),
+    ("cap_drop 后又 cap_add 回加能力", m_cap_add, "cap_add", False),
 ]
 
 

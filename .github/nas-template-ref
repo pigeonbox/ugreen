@@ -1,0 +1,7 @@
+# 漂移门禁的「模板先行」钉版（pigeonbox#362）
+#
+# hub 模板已合入、但发布 tag 尚未重新切出时，物化件按本文件钉住的
+# **不可变 hub commit** 校验（.github/workflows/ci.yml 读取）。
+# 下趟发布列车 sync 后实际内容会匹配新 tag，本 pin 自动失效；届时可删除本文件。
+# 只接受 40 位 commit SHA（不接受分支/可移动 tag，避免门禁被漂移）。
+9cd2a7df4f5338b6e2f2e42f2c548c8ee2971af0
