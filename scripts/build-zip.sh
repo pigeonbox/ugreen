@@ -13,14 +13,14 @@
 set -euo pipefail
 
 # ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
-# vendor/shellkit 是上游镜像（`shellkit vendor .` 的产物）⇒ **勿手改**。
+# third_party/shellkit 是上游镜像（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ **勿手改**。
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+. "$REPO_ROOT/third_party/shellkit/lib/bootstrap.sh"
 export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
 
 cd "$REPO_ROOT"
 
-VERSION="${1:?用法: build-zip.sh <版本>(例: 0.1.0)}"
+VERSION="${1:?用法: build-zip.sh [版本] (例: 0.1.0)}"
 STAGE="$(mktemp -d)"
 # 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）。
 # ⚠️ 原来的手写 trap（`trap 'rc=$?; rm -rf "$STAGE"; …OK 哨兵…' EXIT`）由
