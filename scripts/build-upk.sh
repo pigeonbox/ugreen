@@ -17,17 +17,22 @@
 # 用法: ./scripts/build-upk.sh <版本>   例: ./scripts/build-upk.sh 4.7.1
 #       <版本> 必须与本仓 VERSION 一致（compose 的镜像 tag 依赖它）
 set -euo pipefail
-cd "$(dirname "$0")/.."
-ROOT="$(pwd)"
+
+# ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
+# vendor/shellkit 是上游镜像（`shellkit vendor .` 的产物）⇒ **勿手改**。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
+
+cd "$REPO_ROOT"
 
 VERSION="${1:?用法: build-upk.sh <版本>(例: 4.7.1)}"
 
 # 版本一致性断言：与 VERSION 不符 ⇒ 拒绝（compose 的镜像 tag 与内嵌 tar
 # 都按 VERSION 钉，版本错了 ⇒ 打出来的包装不上）。
-REPO_VER="$(tr -d '[:space:]' < VERSION)"
+REPO_VER="$(tr -d '[:space:]' <VERSION)"
 if [ "$REPO_VER" != "$VERSION" ]; then
-  echo "版本不一致：参数 $VERSION ≠ VERSION 文件 $REPO_VER" >&2
-  exit 1
+  die 1 "版本不一致：参数 ${VERSION} ≠ VERSION 文件 ${REPO_VER}"
 fi
 
 # **拉取源** registry（镜像字节从这儿拉；标签始终取 compose 的 image 引用）。
@@ -40,30 +45,38 @@ REGISTRY="${UPK_REGISTRY:-ghcr.io}"
 #    实测：4.6.4 的 upk job 因 404 直接失败 ⇒ UPK 产物没出来。
 #    ⇒ 默认给 0（本地/手动跑：镜像早就在了，不需要等）；CI 显式设成 40。
 WAIT_MINUTES="${UPK_IMAGE_WAIT_MINUTES:-0}"
+# shellcheck disable=SC2034  # STAGE 只被 trap_push 的清理动作引用（动作在退出时才求值）
 STAGE="$(mktemp -d)"
-# ⚠️ trap 的动作**不能**带重定向（`trap ... >&2` 是无效语法 ⇒ trap 报 usage 并中止）。
-#    清理信息走 stdout 即可（CI 日志里能看到）。
-OK=0
-trap 'rc=$?; rm -rf "$STAGE"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "$OK" != 1 ]; then exit 1; fi; exit 0' EXIT
+# 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）。
+# ⚠️ 原来的手写 trap 由 `trap_install` 取代：它的处理器取 $? 后原样
+#    `exit "$__st"` ⇒ **退出码照旧透传**（C3）。
+#    ⚠️ trap 的动作**不能**带重定向（`trap ... >&2` 是无效语法 ⇒ trap 报 usage
+#    并中止）——`trap_push` 的动作同样是 eval 出来的，**同样不能**带重定向；
+#    清理信息走 log_*（stderr）即可（CI 日志里能看到）。
+#    原 trap 里还有一条「rc==0 且没跑到结尾 ⇒ 退出 1」的成功哨兵判定：本脚本的
+#    失败出口要么是显式 `die 1`、要么是 `set -e` 下命令失败（非 0）
+#    ⇒「跑完却没成功」的出口不存在 ⇒ 与原哨兵等价（不再单列 OK 标志）。
+trap_push 'rm -rf "$STAGE"'
+trap_install
 
-OUT_DIR="$ROOT/dist"
-mkdir -p "$OUT_DIR"
+OUT_DIR="$REPO_ROOT/dist"
+fs_ensure_dir "$OUT_DIR"
 
-echo "== 1) 导出内嵌镜像 tar（拉取源 ${REGISTRY}，版本 ${VERSION}，等待预算 ${WAIT_MINUTES} 分钟）=="
+log_section "1) 导出内嵌镜像 tar（拉取源 ${REGISTRY}，版本 ${VERSION}，等待预算 ${WAIT_MINUTES} 分钟）"
 # ⚠️ 标签与拉取源分离（官方 ugcli 按 tar 的 RepoTags 匹配 compose 的 image
 #    引用）⇒ 导出脚本**按 compose 里的 image 引用**打标签，不按拉取源。
 python3 scripts/export_upk_images.py \
   --version "$VERSION" --registry "$REGISTRY" \
   --wait-minutes "$WAIT_MINUTES"
 
-echo "== 2) 组装 UPK 骨架 =="
+log_section "2) 组装 UPK 骨架"
 # 组装目录留在 dist/ 下（gitignore 覆盖）⇒ 发布流水线可直接对它跑官方
 # `ugcli pack`（官方工具要求路径下就是包目录）。
 # ⚠️ 顶层目录名**必须叫 upk** ⇒ 打出来的 tar.gz 内部仍是 `upk/...`
 #    （与历史 Release 资产布局一致，别让下游解包脚本改口径）。
 PKG_STAGE="$OUT_DIR/upk"
 rm -rf "$PKG_STAGE"
-mkdir -p "$PKG_STAGE/rootfs_common"
+fs_ensure_dir "$PKG_STAGE/rootfs_common"
 
 # project.yaml：复制 + **按 VERSION 改写 version 段**
 # ⚠️ 改写的原因：UPK 包版本（应用中心展示的版本）必须跟着产品版本走，
@@ -72,10 +85,9 @@ mkdir -p "$PKG_STAGE/rootfs_common"
 #    ⇒ 打包副本一律按仓 VERSION 改写 ⇒ 打出来的包版本永远对得上。
 #    改写用 sed 的**行首锚定**（`^version:`）⇒ 不会误伤 `spec_version:`。
 sed -E "s/^(version:[[:space:]]*).*/\1${VERSION}/" upk/project.yaml \
-  > "$PKG_STAGE/project.yaml"
+  >"$PKG_STAGE/project.yaml"
 if ! grep -q "^version: ${VERSION}$" "$PKG_STAGE/project.yaml"; then
-  echo "改写后 project.yaml 的 version 不是 ${VERSION}（源文件里没有 version 段？）" >&2
-  exit 1
+  die 1 "改写后 project.yaml 的 version 不是 ${VERSION}（源文件里没有 version 段？）"
 fi
 
 # rootfs_common：**只**放官方允许的两个文件
@@ -85,14 +97,17 @@ fi
 cp upk/rootfs_common/docker-compose.yaml "$PKG_STAGE/rootfs_common/"
 cp upk/rootfs_common/icon.png "$PKG_STAGE/rootfs_common/"
 # 断言：rootfs_common 里恰好是这两个（官方 allow-list 的机械判定）
+# ⚠️ allow-list 的**判据保留手写**（判据型逻辑：官方只认这两个文件名，判据本身
+#    一个字不改）；只补一条 shellcheck 豁免——这里刻意用 `ls -A | grep -v -x`
+#    取「不在白名单里的条目」，换成 glob 会改判定对象的取法 ⇒ 语义会变。
+# shellcheck disable=SC2010
 EXTRA="$(ls -A "$PKG_STAGE/rootfs_common" | grep -v -x -e docker-compose.yaml -e icon.png || true)"
 if [ -n "$EXTRA" ]; then
-  echo "rootfs_common 里有多余文件：${EXTRA}（官方只允许 icon.png + docker-compose.yaml）" >&2
-  exit 1
+  die 1 "rootfs_common 里有多余文件：${EXTRA}（官方只允许 icon.png + docker-compose.yaml）"
 fi
 
 for arch in amd64 arm64; do
-  mkdir -p "$PKG_STAGE/rootfs_$arch/images"
+  fs_ensure_dir "$PKG_STAGE/rootfs_${arch}/images"
 done
 
 # 只放**本车**的镜像 tar（compose 引用的那些）。
@@ -108,18 +123,19 @@ sys.exit(U.stage_images(pathlib.Path('$PKG_STAGE'), pathlib.Path('upk'), '$VERSI
 "
 # 断言：images/ 里只能有 tar（官方 allow-list）
 for arch in amd64 arm64; do
+  # ⚠️ 同上：allow-list 判据保留手写（只认 .tar），只补 shellcheck 豁免。
+  # shellcheck disable=SC2010
   BAD="$(ls -A "$PKG_STAGE/rootfs_$arch/images" | grep -v '\.tar$' || true)"
   if [ -n "$BAD" ]; then
-    echo "rootfs_$arch/images/ 里有非 tar 文件：${BAD}（官方只允许 tar）" >&2
-    exit 1
+    die 1 "rootfs_${arch}/images/ 里有非 tar 文件：${BAD}（官方只允许 tar）"
   fi
 done
 
-echo "== 3) 校验组装的骨架（规则 + 镜像对应）=="
+log_section "3) 校验组装的骨架（规则 + 镜像对应）"
 # 严格模式：组装好的包必须**一个多余 tar 都没有**（官方会逐个校验）。
 python3 scripts/check_upk_package.py --strict "$PKG_STAGE"
 
-echo "== 4) 打包 =="
+log_section "4) 打包"
 UPK_TAR="$OUT_DIR/pigeonbox-ugreen-upk-${VERSION}.tar.gz"
 # ⚠️ **COPYFILE_DISABLE=1 不可省**（2026-10-31 实测，跨仓同源缺陷）：
 #   macOS 的 bsdtar 遵循 AppleDouble 约定 ⇒ 建包时会**额外塞进** `._<文件名>`
@@ -133,12 +149,12 @@ UPK_TAR="$OUT_DIR/pigeonbox-ugreen-upk-${VERSION}.tar.gz"
 COPYFILE_DISABLE=1 tar -czf "$UPK_TAR" -C "$OUT_DIR" upk
 # 镜像 tar 集合单独出一份（ugcli pack 需要它们在 rootfs_<arch>/images/ 下，
 # 这里额外给一份便于分发与校验）
-( cd upk && COPYFILE_DISABLE=1 tar -czf "$OUT_DIR/pigeonbox-upk-images-${VERSION}.tar.gz" \
-    rootfs_amd64/images rootfs_arm64/images )
+(cd upk && COPYFILE_DISABLE=1 tar -czf "$OUT_DIR/pigeonbox-upk-images-${VERSION}.tar.gz" \
+  rootfs_amd64/images rootfs_arm64/images)
 
 # 断言：两个包都不得混入 AppleDouble 垃圾条目（标准读取器口径）
 python3 - "$OUT_DIR/pigeonbox-ugreen-upk-${VERSION}.tar.gz" \
-           "$OUT_DIR/pigeonbox-upk-images-${VERSION}.tar.gz" <<'PYEOF'
+  "$OUT_DIR/pigeonbox-upk-images-${VERSION}.tar.gz" <<'PYEOF'
 import sys
 import tarfile
 
@@ -154,9 +170,8 @@ PYEOF
 
 cd "$OUT_DIR"
 sha256sum pigeonbox-ugreen-upk-${VERSION}.tar.gz \
-          pigeonbox-upk-images-${VERSION}.tar.gz > SHA256SUMS-UPK
+  pigeonbox-upk-images-${VERSION}.tar.gz >SHA256SUMS-UPK
 cat SHA256SUMS-UPK
 ls -la "$OUT_DIR"
-echo "✓ UPK 组装完成：$UPK_TAR"
-echo "  ⇒ 下一步（CI 的 Linux runner 上）：python3 scripts/check_upk_official.py --package $PKG_STAGE"
-OK=1
+log_ok "UPK 组装完成：${UPK_TAR}"
+log_info "⇒ 下一步（CI 的 Linux runner 上）：python3 scripts/check_upk_official.py --package ${PKG_STAGE}"
